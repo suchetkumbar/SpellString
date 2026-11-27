@@ -1,0 +1,12 @@
+:root {
+  --bg: #050507;
+  --ink: #cfd8e3;
+  --font: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+#stage { position: fixed; inset: 0; }
+#game { display: block; width: 100%; height: 100%; cursor: crosshair; }
+.overlay { position: absolute; margin: 0; font-family: var(--font); font-size: 12px; line-height: 1.4; pointer-events: none; }
+.debug { top: 8px; left: 8px; padding: 6px 8px; background: rgba(5, 5, 7, 0.78); border: 1px solid #2a2d38; white-space: pre; }
+.hint { bottom: 8px; left: 10px; opacity: 0.55; }
