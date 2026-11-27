@@ -12,6 +12,8 @@ export const ENTITY_GLYPHS = {
   playerDead: { glyph: '@', color: '#5c5c66' },
   /** A kinetic shot (a delivery with no payload). */
   kinetic: { glyph: '•', color: '#f6f0ff' },
+  /** A mine stuck to a surface, waiting for a creature. */
+  mine: { glyph: '_', color: '#f6f0ff' },
   /** Impact sparks. */
   spark: { glyph: '*', color: '#fff3b0' },
   /** The exit portal cycles through these. */

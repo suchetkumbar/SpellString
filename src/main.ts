@@ -124,6 +124,12 @@ async function boot(): Promise<void> {
         camera.snapTo(run.game.player.x, run.game.player.y);
         loop.reset();
       },
+      descend: () => {
+        if (!run) return;
+        run.descend();
+        camera.snapTo(run.game.player.x, run.game.player.y);
+        loop.reset();
+      },
     },
     { dailyDate: dayKey(today), dailySeed: dailySeed(today) },
   );
@@ -168,6 +174,7 @@ async function boot(): Promise<void> {
   // in a frame that runs zero ticks (or a click shorter than a frame) is never lost.
   let jumpLatch = false;
   let castLatch = false;
+  let wandLatch = -1;
   let aimX = 0;
   let aimY = 0;
   const readTickInput = (): TickInput => {
@@ -185,6 +192,7 @@ async function boot(): Promise<void> {
       aimY,
       harvest: !lab.enabled && (input.mouseButtons & 2) !== 0,
       cast: !lab.enabled && (castLatch || (input.mouseButtons & 1) !== 0),
+      wandSlot: wandLatch,
     };
   };
 
@@ -232,6 +240,11 @@ async function boot(): Promise<void> {
       } else if (input.wasPressed('KeyR')) again();
       else if (input.wasPressed('KeyQ')) toTitle();
     } else if (kind === 'shrine' && run) {
+      if (run.shrinePicks > 0 && (input.wasPressed('Enter') || input.wasPressed('NumpadEnter'))) {
+        run.descend();
+        camera.snapTo(run.game.player.x, run.game.player.y);
+        loop.reset();
+      }
       for (let i = 0; i < 3; i++) {
         if (input.wasPressed(`Digit${i + 1}`) || input.wasPressed(`Numpad${i + 1}`)) {
           run.choose(i);
@@ -302,6 +315,10 @@ async function boot(): Promise<void> {
 
     if (input.actionPressed('jump')) jumpLatch = true;
     if (running && (input.mousePressed & 1) !== 0) castLatch = true;
+    // Keys 1-3 switch wands (in Lab mode the number keys pick materials instead).
+    if (running && !lab.enabled) {
+      for (let k = 0; k < 3; k++) if (input.wasPressed(`Digit${k + 1}`)) wandLatch = k;
+    }
 
     // Fixed-timestep simulation.
     const steps = running ? loop.advance(dt) : 0;
@@ -311,6 +328,7 @@ async function boot(): Promise<void> {
       current.step(readTickInput(), simulateWorld);
       jumpLatch = false;
       castLatch = false;
+      wandLatch = -1;
     }
     for (let i = 0; i < labSteps; i++) game.sim.step();
     const simMs = performance.now() - simStart;

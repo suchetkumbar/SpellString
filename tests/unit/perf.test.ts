@@ -76,7 +76,7 @@ describe('casting performance', () => {
     const g = Game.fromAscii(rows.join('\n'), 1);
     // A test wand big enough to hit the caps; every glyph owned and charged.
     const wand = new Wand({ slots: 32, maxMana: 10_000, manaRegen: 0, castDelayTicks: 0, rechargeTicks: 0 });
-    (g as { wand: InstanceType<typeof Wand> }).wand = wand;
+    g.wands[0] = wand;
     for (const m of [MAT.water, MAT.fire, MAT.sand, MAT.oil]) g.pouch.add(m, 50);
     const c = wand.compile('[+++++>~^.=]9', () => true);
     expect(c.ok).toBe(true);

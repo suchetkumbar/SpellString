@@ -242,7 +242,7 @@ describe('creature behavior', () => {
     run(g, 5);
     const toad = only(g, 't');
     const imp = only(g, 'i');
-    g.carriers.launch({
+    g.carriers.launch(g, {
       delivery: '>', x: imp.x, y: toad.y, angle: 0, speed: 20, payload: [MAT.fire], perGlyph: 4,
       kinetic: false, owner: imp, hitDamage: 6, source: imp.source,
     });

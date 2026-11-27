@@ -149,6 +149,8 @@ function applyMaterials(ctx: GameContext, c: Creature): void {
   let dmg = 0;
   let heal = 0;
   let slow = 1;
+  // Acid is used up as it eats: every few ticks of contact, one touching acid cell is spent.
+  if (touched[MAT.acid] && (ctx.tick + c.id) % TUNING.acidSpendEvery === 0) spendOne(grid, sim, x0, y0, x1, y1, MAT.acid);
   for (const m of touchedList) {
     const n = touched[m] as number;
     touched[m] = 0;
@@ -179,6 +181,18 @@ function applyMaterials(ctx: GameContext, c: Creature): void {
   if (!c.dead && c.dot >= 0.5 && (ctx.tick + c.id) % TUNING.damageNumberEvery === 0) {
     ctx.effects.number(c.x, c.y - 0.8, c.dot, 'burn');
     c.dot = 0;
+  }
+}
+
+/** Remove one cell of material m inside the box (acid spending itself). */
+export function spendOne(grid: Grid, sim: GameContext['sim'], x0: number, y0: number, x1: number, y1: number, m: number): void {
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if (grid.get(x, y) === m) {
+        sim.place(x, y, MAT.empty);
+        return;
+      }
+    }
   }
 }
 
@@ -284,7 +298,7 @@ function startAttack(ctx: GameContext, c: Creature): void {
     case 'shoot': {
       const pr = a.projectile!;
       const angle = pr.delivery === ')' ? lobAngle(dx, dy, pr.speed, TUNING.lobGravity) : Math.atan2(dy, dx);
-      ctx.carriers.launch({
+      ctx.carriers.launch(ctx, {
         delivery: pr.delivery,
         x: c.x,
         y: c.y,

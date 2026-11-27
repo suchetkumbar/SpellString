@@ -14,11 +14,14 @@ export const densityOf = new Float32Array(256).fill(1000);
 export const dispersionOf = new Uint8Array(256);
 export const lifeMinOf = new Uint16Array(256);
 export const lifeMaxOf = new Uint16Array(256);
+/** 1 if explosions shatter the material. */
+export const brittleOf = new Uint8Array(256);
 
 for (const m of MATERIALS) {
   behaviorOf[m.id] = BEH_OF[m.behavior];
   densityOf[m.id] = m.density;
   dispersionOf[m.id] = m.dispersion ?? 0;
+  brittleOf[m.id] = m.brittle ? 1 : 0;
   if (m.life) {
     lifeMinOf[m.id] = m.life[0];
     lifeMaxOf[m.id] = m.life[1];

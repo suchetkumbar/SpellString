@@ -27,6 +27,10 @@ export interface BiomeDef {
   readonly planks: { readonly count: number; readonly length: readonly [number, number] };
   /** Fire vents in the floor: a fire gate that burns until doused with water. */
   readonly vents: number;
+  /** Rock facing open air is crusted with this material, with this chance per cell (the Vaults' ice). */
+  readonly crust?: { readonly material: MaterialKey; readonly chance: number };
+  /** What the main route's bridges are made of. */
+  readonly bridge: MaterialKey;
   /** Creature picks (weights) and the difficulty budget: base + perDepth * (depth - 1). */
   readonly creatures: Readonly<Partial<Record<CreatureKey, number>>>;
   readonly budget: { readonly base: number; readonly perDepth: number };
@@ -56,15 +60,20 @@ export const BIOMES: readonly BiomeDef[] = [
     pockets: [
       { material: 'sand', count: 10, radius: [2, 4] },
       { material: 'water', count: 6, radius: [2, 4] },
+      { material: 'gold', count: 4, radius: [1, 2] },
     ],
     pools: [{ material: 'water', count: 6, maxCells: 260 }],
-    piles: [{ material: 'sand', count: 8, height: [2, 5] }],
+    piles: [
+      { material: 'sand', count: 8, height: [2, 5] },
+      { material: 'gold', count: 3, height: [1, 2] },
+    ],
     planks: { count: 8, length: [6, 14] },
     vents: 0,
+    bridge: 'wood',
     creatures: { bat: 3, slime: 2 },
     budget: { base: 14, perDepth: 4 },
     chests: 2,
-    chestLoot: ['water', 'sand', 'oil', 'fire', 'wood'],
+    chestLoot: ['water', 'sand', 'oil', 'fire', 'wood', 'gold'],
   },
   {
     key: 'tarpits',
@@ -77,18 +86,52 @@ export const BIOMES: readonly BiomeDef[] = [
     pockets: [
       { material: 'oil', count: 10, radius: [2, 5] },
       { material: 'water', count: 3, radius: [2, 3] },
+      { material: 'gold', count: 5, radius: [1, 2] },
+      { material: 'acid', count: 2, radius: [2, 3] },
     ],
     pools: [
       { material: 'oil', count: 5, maxCells: 600 },
       { material: 'water', count: 2, maxCells: 200 },
     ],
-    piles: [{ material: 'sand', count: 3, height: [2, 4] }],
+    piles: [
+      { material: 'sand', count: 3, height: [2, 4] },
+      { material: 'gold', count: 3, height: [1, 2] },
+    ],
     planks: { count: 10, length: [8, 18] },
     vents: 4,
+    bridge: 'wood',
     creatures: { toad: 3, imp: 2, bat: 1 },
     budget: { base: 18, perDepth: 4 },
     chests: 2,
-    chestLoot: ['water', 'sand', 'oil', 'fire', 'steam'],
+    chestLoot: ['water', 'sand', 'oil', 'fire', 'steam', 'gold'],
+  },
+  {
+    key: 'vaults',
+    name: 'Frozen Vaults',
+    width: 256,
+    height: 144,
+    noiseScale: 20,
+    solidThreshold: 0.49,
+    smoothing: 4,
+    pockets: [
+      { material: 'gunpowder', count: 9, radius: [2, 4] },
+      { material: 'water', count: 5, radius: [2, 4] },
+      { material: 'gold', count: 6, radius: [1, 2] },
+      { material: 'acid', count: 3, radius: [2, 3] },
+    ],
+    pools: [{ material: 'water', count: 6, maxCells: 300 }],
+    piles: [
+      { material: 'gunpowder', count: 6, height: [2, 4] },
+      { material: 'gold', count: 4, height: [1, 2] },
+    ],
+    planks: { count: 4, length: [6, 12] },
+    vents: 0,
+    crust: { material: 'ice', chance: 0.45 },
+    bridge: 'ice',
+    creatures: { golem: 2, imp: 2, bat: 1 },
+    budget: { base: 20, perDepth: 4 },
+    chests: 3,
+    chestLoot: ['water', 'gunpowder', 'acid', 'fire', 'gold', 'ice'],
   },
 ];
 

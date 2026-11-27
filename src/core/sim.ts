@@ -3,6 +3,7 @@ import { Rng, hash2 } from './rng';
 import {
   BEH,
   CONTACTS,
+  brittleOf,
   DECAYS,
   MAX_MATERIALS,
   behaviorOf,
@@ -24,6 +25,16 @@ import { TUNING } from '../data/tuning';
 const UPDATED = 1;
 const EMPTY = 0;
 const FIRE = matId('fire');
+const WATER = matId('water');
+const STEAM = matId('steam');
+const GUNPOWDER = matId('gunpowder');
+
+/** A blast, for the game to push and hurt bodies with. Centre and radius in cells. */
+export interface Explosion {
+  readonly x: number;
+  readonly y: number;
+  readonly r: number;
+}
 
 // 4-neighborhood offsets: up, right, down, left.
 const NX = [0, 1, 0, -1] as const;
@@ -59,6 +70,8 @@ export class Simulation {
   readonly reactionCounts: Uint32Array;
   /** Called the first time a reaction fires in this simulation (hook for the Codex). */
   onReaction: ((reactionIndex: number, x: number, y: number) => void) | null = null;
+  /** Explosions since the game last drained this list. */
+  readonly explosions: Explosion[] = [];
 
   private readonly visit: Uint32Array;
   private visitStamp = 0;
@@ -161,6 +174,70 @@ export class Simulation {
     const m = g.mat[i] as number;
     if (m >= MAX_MATERIALS) return false;
     return this.react(x, y, i, m, chanceScale);
+  }
+
+  /**
+   * Gunpowder goes up at (x, y). Connected gunpowder nearby joins the same blast
+   * (its size grows with the amount), brittle cells shatter, empty space catches
+   * fire, water flashes to steam, and the event is queued in `explosions` so the
+   * game can push and hurt bodies. Gunpowder beyond the blast is set alight and
+   * chains a moment later.
+   */
+  explode(x: number, y: number): void {
+    const g = this.grid;
+    const W = g.width;
+    const R0 = TUNING.explosionGatherRadius;
+    let n = 0;
+    const queue = [x, y];
+    if (g.get(x, y) === GUNPOWDER) {
+      g.mat[y * W + x] = EMPTY;
+      n++;
+    }
+    for (let q = 0; q < queue.length; q += 2) {
+      const cx = queue[q] as number;
+      const cy = queue[q + 1] as number;
+      for (let k = 0; k < 4; k++) {
+        const nx = cx + NX[k]!;
+        const ny = cy + NY[k]!;
+        if (Math.abs(nx - x) > R0 || Math.abs(ny - y) > R0 || g.get(nx, ny) !== GUNPOWDER) continue;
+        g.mat[ny * W + nx] = EMPTY;
+        n++;
+        queue.push(nx, ny);
+      }
+    }
+    const r = Math.min(TUNING.explosionMaxRadius, TUNING.explosionBaseRadius + TUNING.explosionRadiusPerCell * Math.sqrt(n));
+    // Gunpowder a little beyond the blast still catches, so trails of it work as fuses.
+    const fuse = r + TUNING.explosionFuseReach;
+    const rc = Math.ceil(fuse);
+    const rng = this.rng;
+    for (let dy = -rc; dy <= rc; dy++) {
+      for (let dx = -rc; dx <= rc; dx++) {
+        const d = Math.hypot(dx, dy);
+        if (d > fuse) continue;
+        const cx = x + dx;
+        const cy = y + dy;
+        if (!g.inBounds(cx, cy)) continue;
+        const i = cy * W + cx;
+        const m = g.mat[i] as number;
+        if (d > r) {
+          if (m === GUNPOWDER) this.setCell(i, cx, cy, FIRE, undefined);
+          continue;
+        }
+        const falloff = 1 - d / (r + 0.5);
+        if (m === EMPTY || behaviorOf[m] === BEH.gas) {
+          if (rng.next() < TUNING.explosionFireChance * falloff) this.setCell(i, cx, cy, FIRE, undefined);
+        } else if (m === GUNPOWDER) {
+          this.setCell(i, cx, cy, FIRE, undefined); // chains next tick
+        } else if (brittleOf[m] && rng.next() < 0.35 + 0.65 * falloff) {
+          this.setCell(i, cx, cy, EMPTY, undefined);
+        } else if (m === WATER && rng.next() < 0.4 * falloff) {
+          this.setCell(i, cx, cy, STEAM, undefined);
+        }
+        this.wake(cx, cy);
+        this.markDirty(cx, cy);
+      }
+    }
+    this.explosions.push({ x: x + 0.5, y: y + 0.5, r });
   }
 
   /** Clear the whole grid to empty. */
@@ -463,9 +540,28 @@ export class Simulation {
       const r = contactIndex[row + nm] as number;
       if (r < 0 || !((contactDirMask[r] as number) & (1 << n))) continue;
       const R = CONTACTS[r]!;
-      if (rng.next() >= R.chance * chanceScale) continue;
-      if (R.bTo !== undefined) this.setCell(j, nx, ny, matId(R.bTo), R.bLife);
+      if (rng.next() >= R.chance * chanceScale) {
+        // A live pair that just didn't react this tick: keep its chunk awake so slow
+        // reactions (water freezing on ice) carry on while everything else sleeps.
+        this.wake(x, y);
+        continue;
+      }
       this.count(contactGlobal[r]!, nx, ny);
+      if (R.explode) {
+        this.explode(nx, ny);
+      } else if (R.bTo !== undefined) {
+        this.setCell(j, nx, ny, matId(R.bTo), R.bLife);
+      }
+      if (R.aUses !== undefined) {
+        // Each use spends one; the count lives in the life byte (0 = fresh).
+        const left = (g.life[i] || R.aUses) - 1;
+        if (left > 0) {
+          g.life[i] = left;
+          continue;
+        }
+        this.setCell(i, x, y, R.aTo !== undefined ? matId(R.aTo) : EMPTY, R.aLife);
+        return true;
+      }
       if (R.aTo !== undefined) {
         this.setCell(i, x, y, matId(R.aTo), R.aLife);
         return true;

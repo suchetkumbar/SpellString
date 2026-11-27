@@ -2,7 +2,9 @@ import type { Grid } from '../core/grid';
 import { BEH, behaviorOf } from '../core/materialTable';
 import type { Rng } from '../core/rng';
 import type { Simulation } from '../core/sim';
+import type { Body } from './body';
 import { TUNING } from '../data/tuning';
+import { MATERIALS } from '../data/materials';
 
 /** Release goes into empty cells and displaces gas. */
 function open(m: number): boolean {
@@ -32,8 +34,13 @@ export function releaseBurst(
   payload: readonly number[],
   perGlyph: number,
   rng: Rng,
+  /** Leave the cells this body overlaps empty (`@` releasing around the witch). */
+  avoid?: Body,
 ): number {
-  const total = payload.length * perGlyph;
+  const inAvoid = (cx: number, cy: number): boolean =>
+    avoid !== undefined && cx + 1 > avoid.x - avoid.hw && cx < avoid.x + avoid.hw && cy + 1 > avoid.y - avoid.hh && cy < avoid.y + avoid.hh;
+  const counts = payload.map((m) => (perGlyph === TUNING.burstCellsPerGlyph ? (MATERIALS[m]?.burstCells ?? perGlyph) : perGlyph));
+  const total = counts.reduce((s, n) => s + n, 0);
   if (total <= 0) return 0;
 
   // Start from the impact cell, or the nearest open cell if it's buried.
@@ -69,7 +76,8 @@ export function releaseBurst(
     const cy = queue[qi + 1] as number;
     const ddx = cx + 0.5 - x;
     const ddy = cy + 0.5 - y;
-    found.push({ x: cx, y: cy, key: ddx * ddx + ddy * ddy + rng.next() * 1.5 });
+    const jitter = rng.next() * 1.5;
+    if (!inAvoid(cx, cy)) found.push({ x: cx, y: cy, key: ddx * ddx + ddy * ddy + jitter });
     for (const [ox, oy] of NEIGHBORS) {
       const nx = cx + ox;
       const ny = cy + oy;
@@ -85,7 +93,9 @@ export function releaseBurst(
 
   // Interleave the materials, shuffled, so every glyph touches the others.
   const cells: number[] = [];
-  for (let k = 0; k < perGlyph; k++) for (const m of payload) cells.push(m);
+  payload.forEach((m, k) => {
+    for (let n = 0; n < (counts[k] as number); n++) cells.push(m);
+  });
   for (let i = cells.length - 1; i > 0; i--) {
     const j = rng.int(i + 1);
     const t = cells[i] as number;

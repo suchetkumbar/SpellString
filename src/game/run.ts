@@ -3,7 +3,8 @@ import { Rng } from '../core/rng';
 import { levelSeed } from '../core/seeds';
 import { BIOMES, LEVELS_PER_BIOME, type BiomeDef } from '../data/biomes';
 import { MATERIALS } from '../data/materials';
-import { MAX_WAND_SLOTS, WAND_UPGRADES, type WandUpgradeDef } from '../data/shrine';
+import { MAX_WANDS, MAX_WAND_SLOTS, WAND_TEMPLATES, WAND_UPGRADES, type WandTemplateDef, type WandUpgradeDef } from '../data/shrine';
+import { MAT } from '../data/materials';
 import { SPELL_GLYPHS } from '../data/spellGlyphs';
 import { TUNING } from '../data/tuning';
 import { Game, type Kit } from './game';
@@ -24,7 +25,8 @@ export type RunPhase = 'level' | 'shrine' | 'dead' | 'won';
 
 export type ShrineOffer =
   | { readonly kind: 'glyph'; readonly glyph: string; readonly title: string; readonly text: string }
-  | { readonly kind: 'wand'; readonly upgrade: WandUpgradeDef; readonly title: string; readonly text: string };
+  | { readonly kind: 'wand'; readonly upgrade: WandUpgradeDef; readonly title: string; readonly text: string }
+  | { readonly kind: 'newWand'; readonly template: WandTemplateDef; readonly title: string; readonly text: string };
 
 /** Hand-made levels a run can use (the browser imports them; tests read the files). */
 export interface RunLevels {
@@ -39,6 +41,8 @@ export class Run {
   depth = 1;
   game: Game;
   offers: ShrineOffer[] = [];
+  /** Gifts taken at the current shrine: the first is free, each more costs gold. */
+  shrinePicks = 0;
   /** When the current level started (game ticks summed over the run), for the postcard. */
   ticks = 0;
   private readonly rng: Rng;
@@ -95,22 +99,49 @@ export class Run {
     }
   }
 
-  /** Pick a shrine offer (index into `offers`), heal a little, and go down to the next level. */
+  /** Gold the next gift at this shrine costs (the first is free). */
+  get giftCost(): number {
+    return this.shrinePicks === 0 ? 0 : TUNING.shrineExtraCost;
+  }
+
+  /** Gold in the wallet. */
+  get gold(): number {
+    return this.game.pouch.count(MAT.gold);
+  }
+
+  /**
+   * Take a shrine gift (index into `offers`). The first is free; more cost
+   * gold. With nothing left to take or afford, go down to the next level.
+   */
   choose(index: number): void {
     if (this.phase !== 'shrine') return;
     const offer = this.offers[index];
-    if (!offer) return;
-    const kit = this.game.kit();
+    const cost = this.giftCost;
+    if (!offer || this.gold < cost) return;
+    for (let k = 0; k < cost; k++) this.game.pouch.spend(MAT.gold);
+    const g = this.game;
     if (offer.kind === 'glyph') {
-      (kit.known as Set<string>).add(offer.glyph);
-      if (offer.glyph === '[') (kit.known as Set<string>).add(']');
-    } else {
-      applyUpgrade(kit.wand, offer.upgrade);
+      g.known.add(offer.glyph);
+      if (offer.glyph === '[') g.known.add(']');
+    } else if (offer.kind === 'wand') {
+      applyUpgrade(g.wand, offer.upgrade);
+    } else if (g.wands.length < MAX_WANDS) {
+      g.wands.push(new Wand({ ...offer.template.stats }));
     }
+    this.shrinePicks++;
+    this.offers.splice(index, 1);
+    if (this.offers.length === 0 || this.gold < TUNING.shrineExtraCost) this.descend();
+  }
+
+  /** Leave the shrine: heal a little and go down to the next level. */
+  descend(): void {
+    if (this.phase !== 'shrine') return;
+    const kit = this.game.kit();
     this.depth++;
     this.game = this.makeLevel({ ...kit, hp: kit.hp + TUNING.shrineHeal });
     this.phase = 'level';
     this.offers = [];
+    this.shrinePicks = 0;
   }
 
   /** Three offers: new glyphs the witch doesn't know yet, then wand upgrades. */
@@ -126,6 +157,10 @@ export class Run {
       title: u.title,
       text: u.text,
     }));
+    if (this.game.wands.length < MAX_WANDS) {
+      const t = WAND_TEMPLATES[this.rng.int(WAND_TEMPLATES.length)]!;
+      upgrades.push({ kind: 'newWand', template: t, title: t.title, text: t.text });
+    }
     const pick = (list: ShrineOffer[]): ShrineOffer | null => (list.length ? list.splice(this.rng.int(list.length), 1)[0]! : null);
     const out: ShrineOffer[] = [];
     // At least one glyph when any are left: new glyphs are the exciting part.
@@ -190,10 +225,12 @@ export function applyUpgrade(wand: Wand, u: WandUpgradeDef): void {
   if (u.maxMana) wand.mana += u.maxMana;
 }
 
-/** Test room and Lab: every available glyph known; Lab also fills the pouch. */
+/** Test room and Lab: every available glyph known; Lab also fills the pouch and hands over three wands. */
 function sandboxKit(fullPouch: boolean): Kit {
   const pouch = new Pouch();
   if (fullPouch) for (const m of MATERIALS) if (m.id !== 0) pouch.add(m.id, pouch.cap);
   const known = new Set(SPELL_GLYPHS.filter((g) => g.available && g.kind !== 'digit').map((g) => g.glyph));
-  return { hp: TUNING.playerMaxHp, pouch, wand: new Wand(), known, stats: new RunStats() };
+  const wands = fullPouch ? WAND_TEMPLATES.map((t) => new Wand({ ...t.stats })) : [new Wand()];
+  if (fullPouch) wands[0] = new Wand();
+  return { hp: TUNING.playerMaxHp, pouch, wands, activeWand: 0, known, stats: new RunStats() };
 }

@@ -9,6 +9,7 @@ import type { Harvester, Pouch } from './harvest';
 import type { RunStats } from './stats';
 import type { Player } from './player';
 import type { Wand } from './wand';
+import type { PlannedCast } from './spell/plan';
 
 export type MessageKind = 'info' | 'warn' | 'fizzle';
 
@@ -30,4 +31,6 @@ export interface GameContext {
   spawnCreature(key: CreatureKey, x: number, y: number, generation?: number): Creature;
   /** The witch's own carrier burst at (x, y): burns nearby count as her own fire or steam. */
   noteOwnBurst(x: number, y: number, payload: readonly number[]): void;
+  /** `!`: fire these casts from (x, y) along `angle` (charges are spent now, fizzles as usual). */
+  castFrom(casts: readonly PlannedCast[], x: number, y: number, angle: number, spell: string | null): void;
 }

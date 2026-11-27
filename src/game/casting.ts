@@ -4,6 +4,7 @@ import { TUNING } from '../data/tuning';
 import type { GameContext } from './context';
 import type { TickInput } from './input';
 import { CHAOS, cutOffMessage, type PlannedCast } from './spell/plan';
+import type { Wand } from './wand';
 
 export type { MessageKind } from './context';
 export { SELF_BOLT } from './carriers';
@@ -25,26 +26,30 @@ export class Caster {
   /** Rate limit for "not enough mana" messages. */
   private nagUntil = 0;
 
-  update(ctx: GameContext, input: TickInput): void {
-    const w = ctx.wand;
+  /**
+   * Every wand regenerates and finishes the spell it is firing; a click starts
+   * the active wand's spell.
+   */
+  update(ctx: GameContext, wands: readonly Wand[], input: TickInput): void {
     const p = ctx.player;
-    w.mana = Math.min(w.stats.maxMana, w.mana + w.stats.manaRegen * DT);
-    if (p.dead) {
-      w.queue.length = 0;
-      return;
+    for (const w of wands) {
+      w.mana = Math.min(w.stats.maxMana, w.mana + w.stats.manaRegen * DT);
+      if (p.dead) {
+        w.queue.length = 0;
+        continue;
+      }
+      if (w.recharge > 0) w.recharge--;
+      if (w.queue.length > 0) {
+        if (w.delay > 0) w.delay--;
+        if (w.delay <= 0) this.fireNext(ctx, w, input);
+      }
     }
-    if (w.recharge > 0) w.recharge--;
-    if (w.queue.length > 0) {
-      if (w.delay > 0) w.delay--;
-      if (w.delay <= 0) this.fireNext(ctx, input);
-    } else if (input.cast && w.recharge <= 0) {
-      this.begin(ctx, input);
-    }
+    const active = ctx.wand;
+    if (!p.dead && input.cast && active.queue.length === 0 && active.recharge <= 0) this.begin(ctx, active, input);
   }
 
   /** A click: pay for the whole spell and queue its casts. */
-  private begin(ctx: GameContext, input: TickInput): void {
-    const w = ctx.wand;
+  private begin(ctx: GameContext, w: Wand, input: TickInput): void {
     const { plan } = w.spell;
     if (!w.spell.ok || plan.casts.length === 0) return;
     if (w.mana < plan.manaCost) {
@@ -58,11 +63,10 @@ export class Caster {
     ctx.stats.countCast(spellName(w.spell.text));
     if (plan.cutOff) ctx.say(cutOffMessage(plan.cutOff), 'warn');
     w.queue.push(...plan.casts);
-    this.fireNext(ctx, input);
+    this.fireNext(ctx, w, input);
   }
 
-  private fireNext(ctx: GameContext, input: TickInput): void {
-    const w = ctx.wand;
+  private fireNext(ctx: GameContext, w: Wand, input: TickInput): void {
     const cast = w.queue.shift();
     if (!cast) return;
     const p = ctx.player;
@@ -75,13 +79,17 @@ export class Caster {
       dy = 0;
     }
     p.facing = dx >= 0 ? 1 : -1;
-    this.fire(ctx, cast, ox, oy, Math.atan2(dy, dx));
+    this.fireCast(ctx, cast, ox, oy, Math.atan2(dy, dx), spellName(w.spell.text), true);
     if (w.queue.length > 0) w.delay = w.stats.castDelayTicks;
     else w.recharge = w.stats.rechargeTicks;
   }
 
-  /** Fire one cast: spend charges per carrier and launch the fan. */
-  private fire(ctx: GameContext, cast: PlannedCast, ox: number, oy: number, angle: number): void {
+  /**
+   * Fire one cast from (ox, oy) along `angle`: spend charges per carrier and
+   * launch the fan. `fromWitch`: cast from her wand (an `@` then releases
+   * around her rather than on her); false for casts a `!` fires from an impact.
+   */
+  fireCast(ctx: GameContext, cast: PlannedCast, ox: number, oy: number, angle: number, spell: string, fromWitch: boolean): void {
     const spread = (TUNING.splitSpreadDeg * Math.PI) / 180;
     const fizzled: number[] = [];
     for (let k = 0; k < cast.carriers; k++) {
@@ -96,17 +104,21 @@ export class Caster {
         } else if (m > 0) {
           if (!fizzled.includes(m)) fizzled.push(m);
           if (dud === 0) dud = m;
+        } else if (planned === CHAOS && dud === 0) {
+          dud = -1; // `?` with nothing to draw on
         }
       }
-      ctx.carriers.launch({
+      ctx.carriers.launch(ctx, {
         delivery: cast.delivery,
         x: ox,
         y: oy,
         angle: angle + step * spread,
         payload,
         kinetic: cast.payload.length === 0,
-        dud: payload.length === 0 ? dud : 0,
-        spell: spellName(ctx.wand.spell.text),
+        dud: payload.length === 0 ? Math.max(0, dud) : 0,
+        spell,
+        trigger: cast.trigger,
+        avoid: fromWitch ? ctx.player.body : undefined,
       });
     }
     for (const m of fizzled) {

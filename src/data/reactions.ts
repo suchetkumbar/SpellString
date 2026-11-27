@@ -22,6 +22,13 @@ export interface ContactReaction {
   readonly aLife?: readonly [number, number];
   readonly bLife?: readonly [number, number];
   readonly directions?: readonly Direction[];
+  /**
+   * `a` can do this reaction this many times before it is used up (then it's `aTo`,
+   * or empty). The count lives in the cell's life byte: acid bites.
+   */
+  readonly aUses?: number;
+  /** `b` explodes (it becomes the centre of an explosion: see Simulation.explode). */
+  readonly explode?: boolean;
 }
 
 export type Direction = 'up' | 'down' | 'left' | 'right';
@@ -50,6 +57,17 @@ export const REACTIONS: readonly Reaction[] = [
   { kind: 'decay', id: 'steam>water', from: 'steam', outcomes: [{ to: 'water', weight: 0.75 }, { to: 'empty', weight: 0.25 }] },
   // Fire burns out, sometimes leaving smoke.
   { kind: 'decay', id: 'fire>smoke', from: 'fire', outcomes: [{ to: 'smoke', weight: 0.4 }, { to: 'empty', weight: 0.6 }] },
+  // --- Milestone 7 ---
+  // Acid eats rock, wood and ice: four bites per acid cell, then it is spent.
+  { kind: 'contact', id: 'acid+rock', a: 'acid', b: 'rock', chance: 0.06, bTo: 'empty', aUses: 4 },
+  { kind: 'contact', id: 'acid+wood', a: 'acid', b: 'wood', chance: 0.12, bTo: 'empty', aUses: 4 },
+  { kind: 'contact', id: 'acid+ice', a: 'acid', b: 'ice', chance: 0.12, bTo: 'empty', aUses: 4 },
+  // Fire melts ice into water (which then quenches the fire).
+  { kind: 'contact', id: 'fire+ice', a: 'fire', b: 'ice', chance: 0.08, bTo: 'water' },
+  // Water touching ice slowly freezes.
+  { kind: 'contact', id: 'water+ice', a: 'water', b: 'ice', chance: 0.0015, aTo: 'ice' },
+  // Fire touching gunpowder: boom.
+  { kind: 'contact', id: 'fire+gunpowder', a: 'fire', b: 'gunpowder', chance: 0.6, explode: true },
   // Smoke fades away.
   { kind: 'decay', id: 'smoke>empty', from: 'smoke', outcomes: [{ to: 'empty', weight: 1 }] },
 ];

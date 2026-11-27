@@ -20,18 +20,23 @@ export class Pouch {
 
   constructor(readonly cap: number = TUNING.pouchCap) {}
 
+  /** Cap for one material: the wallet (gold) holds far more than a pouch slot. */
+  capOf(material: number): number {
+    return MATERIALS[material]?.currency ? TUNING.walletCap : this.cap;
+  }
+
   count(material: number): number {
     return this.counts[material] ?? 0;
   }
 
   /** Room for one more (including charges still flying in). */
   hasRoom(material: number): boolean {
-    return (this.counts[material] as number) + (this.inFlight[material] as number) < this.cap;
+    return (this.counts[material] as number) + (this.inFlight[material] as number) < this.capOf(material);
   }
 
   add(material: number, n = 1): void {
     if (n > 0) this.seen[material] = 1;
-    this.counts[material] = Math.min(this.cap, (this.counts[material] as number) + n);
+    this.counts[material] = Math.min(this.capOf(material), (this.counts[material] as number) + n);
   }
 
   /** Spend one charge. Returns false (a fizzle) if there is none. */

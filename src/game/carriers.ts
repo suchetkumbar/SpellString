@@ -9,6 +9,7 @@ import { damageCreature } from './creatures';
 import type { DamageSource } from './player';
 import { releaseBurst } from './release';
 import type { Delivery } from './spell/parse';
+import type { PlannedCast } from './spell/plan';
 
 const DT = 1 / TUNING.simHz;
 /** Carriers move in steps no longer than this (cells), so they never skip a 1-cell wall. */
@@ -18,7 +19,11 @@ const HIT_PAD = 0.1;
 
 export const SELF_BOLT: DamageSource = { glyph: '>', text: 'your own bolt' };
 
-/** A flying carrier (`>` bolt, `)` lob) with the matter it will release. */
+/**
+ * A carrier: `>` bolt, `)` lob or `_` mine, with the matter it will release
+ * and (for `!`) the casts to fire from wherever it bursts. `@` never flies: it
+ * bursts on the spot (see Carriers.launch).
+ */
 export interface Carrier {
   readonly delivery: Delivery;
   x: number;
@@ -47,6 +52,15 @@ export interface Carrier {
   readonly source: DamageSource;
   /** The witch's spell that fired it (for kill credit), or null. */
   readonly spell: string | null;
+  /** `!`: casts fired from the burst point, along the carrier's direction. */
+  readonly trigger: readonly PlannedCast[];
+  /** The launch direction (triggers from a stuck mine use it). */
+  readonly angle: number;
+  /** A `_` mine: sticks to the first surface and waits for a creature. */
+  readonly mine: boolean;
+  stuck: boolean;
+  /** Set by an explosion: burst on the next update. */
+  detonate: boolean;
 }
 
 export interface LaunchSpec {
@@ -64,20 +78,28 @@ export interface LaunchSpec {
   readonly hitDamage?: number;
   readonly source?: DamageSource;
   readonly spell?: string | null;
+  readonly trigger?: readonly PlannedCast[];
+  /** `@`: a body the release leaves room for (the witch casting around herself). */
+  readonly avoid?: Body;
 }
 
-function overlaps(b: Body, x: number, y: number): boolean {
-  return Math.abs(x - b.x) <= b.hw + HIT_PAD && Math.abs(y - b.y) <= b.hh + HIT_PAD;
+function overlaps(b: Body, x: number, y: number, pad = HIT_PAD): boolean {
+  return Math.abs(x - b.x) <= b.hw + pad && Math.abs(y - b.y) <= b.hh + pad;
 }
 
-/** All carriers in flight, whoever threw them. */
+/** All carriers in flight (and mines lying in wait), whoever threw them. */
 export class Carriers {
   readonly list: Carrier[] = [];
 
-  launch(s: LaunchSpec): Carrier {
-    // `@` and `_` arrive in M7; until then they fly like bolts.
+  /** Launch a carrier. `@` bursts at once and returns null. */
+  launch(ctx: GameContext, s: LaunchSpec): Carrier | null {
+    if (s.delivery === '@') {
+      this.selfBurst(ctx, s);
+      return null;
+    }
     const lob = s.delivery === ')';
-    const speed = s.speed ?? (lob ? TUNING.lobSpeed : TUNING.boltSpeed);
+    const mine = s.delivery === '_';
+    const speed = s.speed ?? (lob ? TUNING.lobSpeed : mine ? TUNING.mineSpeed : TUNING.boltSpeed);
     const c: Carrier = {
       delivery: s.delivery,
       x: s.x,
@@ -86,9 +108,9 @@ export class Carriers {
       prevY: s.y,
       vx: Math.cos(s.angle) * speed,
       vy: Math.sin(s.angle) * speed,
-      gravity: lob ? TUNING.lobGravity : 0,
+      gravity: lob ? TUNING.lobGravity : mine ? TUNING.mineGravity : 0,
       age: 0,
-      maxAge: lob ? TUNING.lobMaxTicks : Math.ceil((TUNING.boltRange / speed) * TUNING.simHz),
+      maxAge: lob || mine ? TUNING.lobMaxTicks : Math.ceil((TUNING.boltRange / speed) * TUNING.simHz),
       payload: s.payload,
       perGlyph: s.perGlyph ?? TUNING.burstCellsPerGlyph,
       kinetic: s.kinetic,
@@ -98,6 +120,11 @@ export class Carriers {
       hitDamage: s.hitDamage ?? 0,
       source: s.source ?? SELF_BOLT,
       spell: s.spell ?? null,
+      trigger: s.trigger ?? [],
+      angle: s.angle,
+      mine,
+      stuck: false,
+      detonate: false,
     };
     this.list.push(c);
     return c;
@@ -105,50 +132,80 @@ export class Carriers {
 
   update(ctx: GameContext): void {
     const { grid } = ctx;
-    let w = 0;
-    for (let i = 0; i < this.list.length; i++) {
-      const c = this.list[i]!;
+    // Bursts can fire triggers that launch new carriers: those start moving next tick.
+    const current = this.list.splice(0, this.list.length);
+    const keep: Carrier[] = [];
+    for (const c of current) {
       c.prevX = c.x;
       c.prevY = c.y;
       c.age++;
+      if (c.detonate) {
+        this.burst(ctx, c);
+        continue;
+      }
+      if (c.stuck) {
+        // A mine lying in wait: a creature close by (or old age) sets it off.
+        if (c.age >= TUNING.mineLifetimeTicks || ctx.creatures.some((cr) => !cr.dead && overlaps(cr.body, c.x, c.y, TUNING.mineTriggerRadius))) {
+          this.burst(ctx, c);
+        } else {
+          keep.push(c);
+        }
+        continue;
+      }
       if (c.age === 1) c.inLiquid = behaviorOf[grid.get(Math.floor(c.x), Math.floor(c.y))] === BEH.liquid;
       c.vy += c.gravity * DT;
       const mx = c.vx * DT;
       const my = c.vy * DT;
       const steps = Math.max(1, Math.ceil(Math.hypot(mx, my) / CARRIER_STEP));
-      let done = false;
-      for (let s = 0; s < steps && !done; s++) {
+      let hitWorld = false;
+      let hitBody = false;
+      for (let s = 0; s < steps && !hitWorld && !hitBody; s++) {
         const nx = c.x + mx / steps;
         const ny = c.y + my / steps;
         const m = grid.get(Math.floor(nx), Math.floor(ny));
         if (isSolid(m)) {
-          done = true;
+          hitWorld = true;
           break;
         }
         const liquid = behaviorOf[m] === BEH.liquid;
         if (liquid && !c.inLiquid) {
-          done = true; // splash down on the surface
+          hitWorld = true; // splash down on the surface
           break;
         }
         c.inLiquid = liquid;
         c.x = nx;
         c.y = ny;
-        done = this.hitBodies(ctx, c);
+        hitBody = this.hitBodies(ctx, c);
       }
-      if (done || c.age >= c.maxAge) {
+      if (hitWorld && c.mine) {
+        // Mines stick where they land and wait.
+        c.stuck = true;
+        c.vx = 0;
+        c.vy = 0;
+        c.age = 0;
+        keep.push(c);
+        continue;
+      }
+      if (hitWorld || hitBody || c.age >= c.maxAge) {
         this.burst(ctx, c);
         continue;
       }
-      this.list[w++] = c;
+      keep.push(c);
     }
-    this.list.length = w;
+    // Keep survivors first, then anything launched by triggers this tick.
+    this.list.unshift(...keep);
   }
 
   /** Did the carrier fly into the witch or a creature? Applies the hit. */
   private hitBodies(ctx: GameContext, c: Carrier): boolean {
     const grace = c.age <= TUNING.castGraceTicks;
     const p = ctx.player;
-    if (!p.dead && !(grace && c.owner === null) && overlaps(p.body, c.x, c.y)) {
+    if (!p.dead && c.owner !== null && overlaps(p.body, c.x, c.y)) {
+      this.hitPlayer(ctx, c);
+      return true;
+    }
+    // Your own carriers can hit you after the grace period (mines never do).
+    if (!p.dead && c.owner === null && !grace && !c.mine && overlaps(p.body, c.x, c.y)) {
       this.hitPlayer(ctx, c);
       return true;
     }
@@ -198,12 +255,47 @@ export class Carriers {
     damageCreature(ctx, cr, dmg, 'impact', c.vx / v, c.vy / v, knock, c.owner === null ? 'player' : c.owner.def.key);
   }
 
+  /** `@`: release right here (leaving room for `avoid`), shove nearby creatures if kinetic, then fire any trigger. */
+  private selfBurst(ctx: GameContext, s: LaunchSpec): void {
+    if (s.payload.length > 0) {
+      releaseBurst(ctx.grid, ctx.sim, s.x, s.y, s.payload, s.perGlyph ?? TUNING.burstCellsPerGlyph, ctx.rng, s.avoid);
+      if ((s.owner ?? null) === null) ctx.noteOwnBurst(s.x, s.y, s.payload);
+      ctx.effects.sparks(s.x, s.y, 4, ctx.rng);
+    } else if (s.kinetic) {
+      this.blast(ctx, s.x, s.y, TUNING.selfBlastRadius, s.spell ?? null);
+    } else if (s.dud) {
+      ctx.effects.sparks(s.x, s.y, 2, ctx.rng, 'fizzle', s.dud);
+    }
+    if (s.trigger && s.trigger.length > 0) ctx.castFrom(s.trigger, s.x, s.y, s.angle, s.spell ?? null);
+  }
+
+  /** A kinetic shockwave: creatures within the radius are hurt and pushed away. */
+  private blast(ctx: GameContext, x: number, y: number, radius: number, spell: string | null): void {
+    for (const cr of ctx.creatures) {
+      if (cr.dead) continue;
+      const dx = cr.x - x;
+      const dy = cr.y - y;
+      const d = Math.hypot(dx, dy);
+      if (d > radius) continue;
+      if (spell) cr.lastSpell = spell;
+      const f = 1 - d / (radius + 0.5);
+      damageCreature(ctx, cr, TUNING.kineticDamage * cr.def.kineticScale, 'impact', dx / (d || 1), dy / (d || 1) - 0.3, TUNING.kineticKnockback * (0.5 + f), 'player');
+    }
+    ctx.effects.sparks(x, y, 6, ctx.rng);
+  }
+
   private burst(ctx: GameContext, c: Carrier): void {
     if (c.payload.length > 0) {
       releaseBurst(ctx.grid, ctx.sim, c.x, c.y, c.payload, c.perGlyph, ctx.rng);
       if (c.owner === null) ctx.noteOwnBurst(c.x, c.y, c.payload);
+    } else if (c.kinetic && c.mine) {
+      this.blast(ctx, c.x, c.y, TUNING.mineBlastRadius, c.spell);
     }
     if (c.dud) ctx.effects.sparks(c.x, c.y, 2, ctx.rng, 'fizzle', c.dud);
     else ctx.effects.sparks(c.x, c.y, c.payload.length > 0 ? 3 : 2, ctx.rng);
+    if (c.trigger.length > 0) {
+      const moving = Math.hypot(c.vx, c.vy) > 0.01;
+      ctx.castFrom(c.trigger, c.x, c.y, moving ? Math.atan2(c.vy, c.vx) : c.angle, c.spell);
+    }
   }
 }

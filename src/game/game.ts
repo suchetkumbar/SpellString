@@ -7,7 +7,9 @@ import { REACTIONS } from '../data/reactions';
 import { SPELL_GLYPH_BY_CHAR, STARTING_GLYPHS } from '../data/spellGlyphs';
 import { TUNING } from '../data/tuning';
 import { Carriers } from './carriers';
-import { Caster } from './casting';
+import { Caster, spellName } from './casting';
+import { applyExplosions } from './explosions';
+import type { PlannedCast } from './spell/plan';
 import type { GameContext, MessageKind } from './context';
 import { Creature } from './creature';
 import { updateCreatures } from './creatures';
@@ -32,7 +34,9 @@ export interface GameMessage {
 export interface Kit {
   readonly hp: number;
   readonly pouch: Pouch;
-  readonly wand: Wand;
+  /** Up to three wands, and which one is in hand. */
+  readonly wands: readonly Wand[];
+  readonly activeWand: number;
   readonly known: ReadonlySet<string>;
   readonly stats: RunStats;
 }
@@ -57,7 +61,9 @@ export class Game implements GameContext {
   readonly spawn: LevelLayout['spawn'];
   readonly pouch: Pouch;
   readonly harvester = new Harvester();
-  readonly wand: Wand;
+  /** Up to MAX_WANDS wands; keys 1-3 switch between them. */
+  readonly wands: Wand[];
+  activeWand = 0;
   readonly caster = new Caster();
   readonly carriers = new Carriers();
   readonly effects = new Effects();
@@ -84,9 +90,12 @@ export class Game implements GameContext {
     const kit = opts.kit;
     this.pouch = kit?.pouch ?? new Pouch();
     this.pouch.inFlight.fill(0);
-    this.wand = kit?.wand ?? new Wand();
-    this.wand.queue.length = 0;
-    this.wand.recharge = 0;
+    this.wands = kit ? [...kit.wands] : [new Wand()];
+    this.activeWand = Math.min(kit?.activeWand ?? 0, this.wands.length - 1);
+    for (const w of this.wands) {
+      w.queue.length = 0;
+      w.recharge = 0;
+    }
     this.known = new Set(kit?.known ?? STARTING_GLYPHS);
     this.stats = kit?.stats ?? new RunStats();
     if (kit) this.player.hp = Math.max(1, Math.min(this.player.maxHp, kit.hp));
@@ -101,7 +110,7 @@ export class Game implements GameContext {
   /** What carries over to the next level. */
   kit(): Kit {
     this.recordReactions();
-    return { hp: this.player.hp, pouch: this.pouch, wand: this.wand, known: this.known, stats: this.stats };
+    return { hp: this.player.hp, pouch: this.pouch, wands: this.wands, activeWand: this.activeWand, known: this.known, stats: this.stats };
   }
 
   /**
@@ -142,6 +151,15 @@ export class Game implements GameContext {
     });
   }
 
+  /** The wand in hand. */
+  get wand(): Wand {
+    return this.wands[this.activeWand]!;
+  }
+
+  castFrom(casts: readonly PlannedCast[], x: number, y: number, angle: number, spell: string | null): void {
+    for (const c of casts) this.caster.fireCast(this, c, x, y, angle, spell ?? spellName(this.wand.spell.text), false);
+  }
+
   /** The witch reached the exit portal. */
   get exitReached(): boolean {
     return this.features.exitReached;
@@ -152,10 +170,15 @@ export class Game implements GameContext {
     if (simulateWorld) this.sim.step();
     this.player.update(input, this.grid, this.sim);
     this.harvester.update(input, this.player, this.grid, this.sim, this.pouch, this.rng);
-    this.caster.update(this, input);
+    if (input.wandSlot >= 0 && input.wandSlot < this.wands.length && input.wandSlot !== this.activeWand) {
+      this.activeWand = input.wandSlot;
+      this.say(`Wand ${input.wandSlot + 1}: ${this.wand.spell.text}`, 'info');
+    }
+    this.caster.update(this, this.wands, input);
     this.carriers.update(this);
     updateCreatures(this);
     this.features.update(this);
+    applyExplosions(this);
     this.effects.update();
     this.tick++;
   }

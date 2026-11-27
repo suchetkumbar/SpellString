@@ -177,7 +177,20 @@ export function generateLevel(seed: number, biome: BiomeDef, depth: number, opts
     // Only bridge real drops: a dip no deeper than a jump can be walked through.
     let drop = 0;
     while (drop <= BRIDGE_DROP && f + 1 + drop < H && grid.mat[(f + 1 + drop) * W + x] === MAT.empty) drop++;
-    if (drop > BRIDGE_DROP) grid.mat[(f + 1) * W + x] = MAT.wood;
+    if (drop > BRIDGE_DROP) grid.mat[(f + 1) * W + x] = MAT[biome.bridge];
+  }
+
+  // An ice crust (Frozen Vaults): rock facing open air frosts over.
+  if (biome.crust) {
+    const crust = MAT[biome.crust.material];
+    for (let y = BORDER; y < H - BORDER; y++) {
+      for (let x = BORDER; x < W - BORDER; x++) {
+        const i = y * W + x;
+        if (grid.mat[i] !== MAT.rock) continue;
+        const open = grid.mat[i - 1] === MAT.empty || grid.mat[i + 1] === MAT.empty || grid.mat[i - W] === MAT.empty || grid.mat[i + W] === MAT.empty;
+        if (open && rng.next() < biome.crust.chance) grid.mat[i] = crust;
+      }
+    }
   }
 
   const nearRooms = (x: number, y: number): boolean =>
@@ -438,7 +451,7 @@ function placeCreatures(
     if (isRock(grid, x, y + 1)) ground.push({ x, y });
     // Fliers start a few cells up in open air above reachable ground.
     const fy = y - 3;
-    if (isAir(grid, x, fy) && isAir(grid, x, fy - 1) && isAir(grid, x - 1, fy) && isAir(grid, x + 1, fy)) air.push({ x, y: fy });
+    if (Math.hypot(x - spawn.x, fy - spawn.y) >= CREATURE_SPAWN_DISTANCE && isAir(grid, x, fy) && isAir(grid, x, fy - 1) && isAir(grid, x - 1, fy) && isAir(grid, x + 1, fy)) air.push({ x, y: fy });
   }
 
   const picks = Object.entries(biome.creatures) as [CreatureKey, number][];

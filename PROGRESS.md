@@ -1,5 +1,99 @@
 # Spellstring: progress log
 
+## M7: Spells v2 and new chemistry (done)
+
+### What changed
+- **New spell glyphs** (all now offered at Glyph Shrines):
+  - **`@` self:** releases right where it's cast, leaving the witch's own cells clear, so `@*3` builds an ice shell *around* her. With no payload it's a shockwave (radius 3.5) that hurts and shoves creatures away. `@` fired by a trigger releases around the impact point.
+  - **`_` mine:** flies a short arc (speed 26, gravity 30), **sticks to the first surface it hits**, and bursts when a creature comes within about a cell. It also bursts when it flies straight into a creature, when an explosion reaches it, or after 60 s. A kinetic mine is a small shockwave. Mines never go off on the witch.
+  - **`!` trigger:** when any carrier bursts (impact, end of range, mine, `@`), the rest of its group is cast from that point along the carrier's direction. Charges are spent then, so fizzles still apply. Every carrier triggers, so `+>!>` makes 6 carriers.
+  - **`?` chaos:** each carrier draws a random matter glyph you have charges for, at cast time.
+  - **`[ ... ]n` loops:** learning `[` teaches `]` too.
+  - The plan's caps (32 carriers, 400 cells, trigger depth 4) cover triggers and loops; the M4 interpreter already enforced them.
+- **New materials** (`src/data/materials.ts`, `reactions.ts`):
+  - **`%` acid:** a liquid heavier than water. It eats rock, wood and ice, **4 bites per acid cell**, then it's spent. The bite count lives in the cell's life byte (new reaction field `aUses`). It hurts the witch (18/s) and creatures (golems 45/s) and is spent by them too: one touching cell every 8 ticks of contact.
+  - **`*` ice:** static and brittle. **Fire melts it** into water. **Water touching it slowly freezes** (chance 0.0015 per tick per contact).
+  - **`:` gunpowder:** a powder. **Fire sets it off** (new reaction field `explode`).
+  - **`$` gold:** the heaviest powder. It is harvested into the **wallet** (cap 999, separate from the 50-per-material pouch).
+- **Explosions** (`Simulation.explode`, `src/game/explosions.ts`):
+  - All gunpowder connected to the blast point within 4 cells goes up together, so the radius grows with the amount: 2.5 + 0.8·√n, capped at 9.
+  - Inside the radius, brittle cells shatter (wood, ice, sand; never rock), empty space catches fire, and water flashes to steam.
+  - **Gunpowder up to 1.5 cells beyond the radius is lit too**, so trails work as fuses and caches chain.
+  - Bodies in range take up to 40 damage and a push of up to 34 cells/s, both falling off to the edge. Stuck mines in range go off. Blasts after your own fire count as **"your own explosion"**.
+- **Sim change:** a contact pair that matches but misses its dice roll now keeps its chunk awake, so slow reactions (freezing, acid) carry on while the rest of the map sleeps. Measured on generated levels this costs almost nothing: 0.04–0.06 ms/tick, with 0–2 chunks awake.
+- **Gold:**
+  - **Spending:** writing `$` into a spell spends gold. The shot hits hard (heavy impact 15 per `$`, ×2.5 on golems) but drops only 3 nuggets (new material field `burstCells`), so you can't just harvest it back.
+  - **Where it's found:** every biome now has sealed gold veins and small nugget piles, and chests can hold gold.
+  - **The HUD** shows the wallet as `$ n` in the pouch line.
+- **Up to three wands** (keys 1–3, via `TickInput.wandSlot`, so switching is replayable):
+  - Every wand regenerates and finishes its current spell in the background, and the HUD lists them all with the one in hand marked.
+  - Shrines can offer a **new wand**: Quick (3 slots, fast recharge), Deep (6 slots, 160 MP, slow) or Twin (a second starter wand).
+  - Wand upgrades apply to the wand in hand.
+  - Lab starts with three wands.
+- **Shrine extras:** the first gift is free, and **each extra costs 25 gold**. With gold left to spend the shrine stays open, and **Enter descends**.
+- **Frozen Vaults** (levels 5–6): rock facing open air is crusted with ice (45%), **the main route's bridges are ice**, and there are gunpowder caches and piles, acid pockets, water pools (which slowly freeze against the crust), and gold. Creatures are golems, imps and bats. A descent is now 6 levels.
+- **Lab:** all 12 materials. Keys 1–9 and 0 pick the first ten, and `[` and `]` step through all of them. The test room has ice, gunpowder and gold on its shelf, and an acid cup (which slowly eats its way down).
+
+### How to try it
+1. Lab (title screen, **L**) has every glyph, a full pouch and three wands. Press Tab and try:
+   - `>!)~5` at a wall.
+   - `_:^` aimed at the floor, then lure something over it (or spawn one with J/K).
+   - `[>.]4` for an instant ramp.
+   - `@*3` to wall yourself in ice.
+   - `>%` to dig with acid.
+   - `>$` at a golem.
+2. Paint a gunpowder trail in Lab (`:` is key 1–0 or `[`/`]`), touch fire to one end, and watch it chain.
+3. In a run, collect gold, then take two gifts at a shrine.
+
+### Tests (210 unit, 7 e2e)
+- **Chemistry** (`chemistry2.test.ts`), one scenario per new reaction:
+  - **Acid:** it eats exactly 36 rock cells for 9 acid cells, then is spent. It eats wood and ice at 4 bites. It hurts the witch and is used up.
+  - **Ice:** fire melts it, and water freezes on it slowly but surely (even after the pool settles).
+  - **Explosions:**
+    - Radius exactly 2.5 + 0.8·√25 for a 25-grain pile.
+    - Brittle cells shatter and rock doesn't.
+    - **A gunpowder fuse chains** into several blasts.
+    - **Push and damage** fall off with distance and miss bodies outside the radius.
+    - "your own explosion".
+  - **Gold:** wallet cap, and it sinks through water.
+- **Spells** (`spells2.test.ts`):
+  - **Interpreter:** chaos placeholders, loops of triggers, `@` and `_` plans.
+  - **`>!)~5`:** the lob is launched from the far wall and 60 water cells land.
+  - **`_:^`:** it sticks, waits, then goes up when a slime comes by.
+  - **`[>.]4`:** 4 launches and 48 sand.
+  - **`@*3`:** an ice shell with her own cells clear.
+  - Kinetic `@` shoves; `?` draws from the charges you have; `+>!>` makes 6 carriers.
+  - **Caps at runtime:** `[[+>]9]9` stops at 32 carriers with a "cut off" warning, quickly.
+- **Wands and shrines:** switching keeps each wand's spell and mana; shrines offer new wands (capped at 3); `>$` spends gold, drops 3 nuggets and deals heavy damage; and the shrine's free gift, then paid gifts, then automatic descent.
+- **The Vaults** generate with ice, gunpowder, gold and their creatures.
+- **Earlier tests:** the 500-seed connectivity test now covers all three biomes, and every earlier test still passes (descents are now 6 levels).
+
+### Feel decisions to review
+- **Acid:** 4 bites per cell at chance 0.06 (rock) or 0.12 (wood and ice) per tick. A `>%` bolt (12 cells) digs about 48 cells of rock in a few seconds. That makes it a strong digging tool, so watch whether it trivializes levels.
+- **Freezing at 0.0015:** a small pool freezes over in roughly half a minute of contact with ice.
+- **Explosions:** 40 damage and 34 cells/s push at the centre. One `_:^` mine (12 gunpowder + 12 fire) makes a radius of about 5.
+- **Mines** trigger within about a cell of a creature and last 60 s.
+- **Gold:** a `$` shot deals 18 (45 to golems). Extra shrine gifts cost 25.
+- **Wand templates:** Quick 3 slots / 7-tick recharge, Deep 6 slots / 160 MP / 32-tick recharge, Twin = a starter wand.
+
+### Ambiguities resolved (please check)
+- **Acid's limited bites** are one count per acid cell (4), whatever it eats.
+- **`@` releases around the caster, not on her.** Without that, `@*3` would entomb her.
+- **Triggers fire on any burst**, including the end of a bolt's range and a mine going off, and every carrier of a `+` fan triggers.
+- **Mines are creature-triggered only**, as the spec says; the witch can walk over her own.
+- **Gold in a spell** is spent like any charge (one per `$`). It is deliberately a poor way to move gold around (3 nuggets back for 1 gold).
+- **The wallet** is the gold slot of the pouch, with its own cap.
+
+### Known issues
+- `>%` may be too good at digging, and `@*3` makes you briefly invulnerable to walkers. Both are playtest questions.
+- Pools in the Vaults freeze for good, so water can become scarce late in a level (harvest early, or melt ice with fire).
+- The acid cup in the test room slowly eats away the floor below it (working as designed, but noisy for M2-style testing).
+
+### Dependencies
+No new dependencies.
+
+---
+
 ## M6: Caves and the descent (done)
 
 ### What changed

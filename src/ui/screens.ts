@@ -15,6 +15,8 @@ export interface ScreenActions {
   again(): void;
   quit(): void;
   choose(index: number): void;
+  /** Leave the shrine. */
+  descend(): void;
 }
 
 export interface TitleInfo {
@@ -59,7 +61,7 @@ export class Screens {
   }
 
   show(kind: ScreenKind | null, run: Run | null): void {
-    const key = `${kind}|${run?.seed}|${run?.depth}|${run?.phase}`;
+    const key = `${kind}|${run?.seed}|${run?.depth}|${run?.phase}|${run?.shrinePicks}|${run?.offers.length}|${run?.gold}`;
     if (key === this.key) return;
     this.key = key;
     this.current = kind;
@@ -139,17 +141,28 @@ export class Screens {
   private buildShrine(run: Run): void {
     const r = this.root;
     el('div', 'screen-title shrine', r, 'GLYPH SHRINE');
-    el('div', 'screen-sub', r, `You rest a moment (+${TUNING.shrineHeal} HP). Take one gift down to level ${run.depth + 1}.`);
+    const cost = run.giftCost;
+    el(
+      'div',
+      'screen-sub',
+      r,
+      cost === 0
+        ? `You rest a moment (+${TUNING.shrineHeal} HP). Take a gift down to level ${run.depth + 1}.`
+        : `Another gift costs ${cost} gold. You have ${run.gold}.`,
+    );
     const cards = el('div', 'shrine-cards', r);
+    const kindText = { glyph: 'new glyph', wand: 'wand', newWand: 'new wand' } as const;
     run.offers.forEach((o, i) => {
-      const card = el('button', `shrine-card ${o.kind}`, cards);
+      const card = el('button', `shrine-card ${o.kind}${run.gold < cost ? ' cant' : ''}`, cards);
       card.type = 'button';
-      el('div', 'shrine-key', card, `[${i + 1}]`);
+      el('div', 'shrine-key', card, cost > 0 ? `[${i + 1}]  ${cost} $` : `[${i + 1}]`);
       el('div', 'shrine-name', card, o.title);
-      el('div', 'shrine-text', card, o.kind === 'glyph' ? `new glyph: ${o.text}` : `wand: ${o.text}`);
+      el('div', 'shrine-text', card, `${kindText[o.kind]}: ${o.text}`);
       card.addEventListener('click', () => this.actions.choose(i));
     });
-    el('div', 'screen-help', r, 'gold and extra offers arrive with gold (Milestone 7)');
+    const menu = el('div', 'screen-menu', r);
+    if (run.shrinePicks > 0) this.button(menu, 'Enter', 'descend', () => this.actions.descend());
+    el('div', 'screen-help', r, `the first gift is free; more cost ${TUNING.shrineExtraCost} gold each · gold: ${run.gold}`);
   }
 
   private buildEnd(kind: 'death' | 'won', run: Run): void {

@@ -71,12 +71,13 @@ describe('the wand', () => {
   it('owns digits always, starting glyphs, and matter once harvested', () => {
     const g = Game.fromAscii(ROOM, 1);
     for (const ch of ['>', '2', '9']) expect(g.owns(ch), ch).toBe(true);
-    // ) and + are learned at Glyph Shrines; M7 glyphs aren't available yet even if known.
+    // Everything but > is learned at Glyph Shrines.
     for (const ch of [')', '+', '~', '^', '_', '@', '!', '?', '[', 'k']) expect(g.owns(ch), ch).toBe(false);
     g.known.add(')');
     g.known.add('_');
     expect(g.owns(')')).toBe(true);
-    expect(g.owns('_')).toBe(false);
+    expect(g.owns('_')).toBe(true);
+    expect(g.owns('[')).toBe(false); // not learned
     g.pouch.add(MAT.fire, 1);
     g.pouch.spend(MAT.fire);
     expect(g.owns('^')).toBe(true); // still owned with no charges left

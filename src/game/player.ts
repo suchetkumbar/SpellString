@@ -25,6 +25,9 @@ export const DAMAGE = {
   buried: source(MAT.sand, 'buried alive'),
   ownFire: source(MAT.fire, 'your own fire'),
   ownSteam: source(MAT.steam, 'your own steam'),
+  acid: source(MAT.acid, 'acid'),
+  explosion: source(MAT.gunpowder, 'an explosion'),
+  ownExplosion: source(MAT.gunpowder, 'your own explosion'),
 } as const;
 
 export class Player {
@@ -59,6 +62,8 @@ export class Player {
   ownSteam = 0;
   /** The current burning came from her own fire. */
   private burnOwn = false;
+  /** Ticks spent touching acid (it is spent every few ticks). */
+  private acidTicks = 0;
 
   /** Ticks since last standing on ground (coyote time). */
   private airTicks = 1_000_000;
@@ -192,10 +197,12 @@ export class Player {
     let fire = 0;
     let steam = 0;
     let water = 0;
+    let acid = 0;
     forEachOverlap(grid, b, (_x, _y, _i, m) => {
       if (m === MAT.fire) fire++;
       else if (m === MAT.steam) steam++;
       else if (m === MAT.water) water++;
+      else if (m === MAT.acid) acid++;
     });
 
     // Water puts burning out. Fire sets it (unless we're also in water).
@@ -209,6 +216,20 @@ export class Player {
       this.burning--;
       this.damage(TUNING.burnDps * DT, this.burnOwn ? DAMAGE.ownFire : DAMAGE.burning);
       this.igniteTouched(grid, sim);
+    }
+
+    if (acid > 0) {
+      this.damage(TUNING.acidDps * DT, DAMAGE.acid);
+      // Acid is used up as it eats: one touching cell every few ticks of contact.
+      if (++this.acidTicks % TUNING.acidSpendEvery === 0) {
+        let spent = false;
+        forEachOverlap(grid, b, (x, y, _i, m) => {
+          if (m === MAT.acid && !spent) {
+            sim.place(x, y, MAT.empty);
+            spent = true;
+          }
+        });
+      }
     }
 
     if (steam > 0) {

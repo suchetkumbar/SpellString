@@ -25,6 +25,9 @@ export const CONTROLS = {
   labSpawn: ['KeyK'],
   /** Held while painting in Lab: overwrite existing cells instead of filling only empty space. */
   labOverwrite: ['ShiftLeft', 'ShiftRight'],
+  /** Lab: previous / next material. */
+  labPrev: ['BracketLeft'],
+  labNext: ['BracketRight'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type Action = keyof typeof CONTROLS;
@@ -35,4 +38,4 @@ export const PREVENT_DEFAULT_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /** Lab mode: number keys 1-9 pick these materials, in order. */
-export const LAB_PALETTE = ['rock', 'sand', 'water', 'fire', 'oil', 'wood', 'steam', 'smoke'] as const satisfies readonly MaterialKey[];
+export const LAB_PALETTE = ['rock', 'sand', 'water', 'fire', 'oil', 'wood', 'steam', 'smoke', 'acid', 'ice', 'gunpowder', 'gold'] as const satisfies readonly MaterialKey[];

@@ -130,6 +130,10 @@ export const TUNING = {
   suffocateGraceTicks: 60,
   /** Suffocation damage per second. */
   suffocateDps: 12,
+  /** Damage per second while touching acid. */
+  acidDps: 18,
+  /** Acid touching a body is spent one cell every this many ticks of contact. */
+  acidSpendEvery: 8,
 
   // --- Spells: the starting wand (M4) ---
   /** Glyph slots in the starting wand. */
@@ -170,6 +174,16 @@ export const TUNING = {
   lobSpeed: 26,
   lobGravity: 42,
   lobMaxTicks: 240,
+  /** Mine `_`: launch speed (cells/s) and gravity (cells/s^2); it sticks where it lands. */
+  mineSpeed: 26,
+  mineGravity: 30,
+  /** A stuck mine goes off when a creature comes within this many cells of it (beyond touching). */
+  mineTriggerRadius: 0.9,
+  /** A stuck mine bursts by itself after this long. */
+  mineLifetimeTicks: 3600,
+  /** Kinetic mine and kinetic `@` shockwave radius, cells. */
+  mineBlastRadius: 2.5,
+  selfBlastRadius: 3.5,
   /** Carriers can't hit the caster for this many ticks after leaving the wand. */
   castGraceTicks: 12,
   /** Kinetic shot (a delivery with no payload): damage and knockback speed (cells/s). */
@@ -199,6 +213,22 @@ export const TUNING = {
   /** Ticks a hit creature (or the witch) flashes white. */
   hurtFlashTicks: 6,
 
+  // --- Explosions (gunpowder) ---
+  /** Gunpowder connected to the blast point within this many cells goes up in the same explosion. */
+  explosionGatherRadius: 4,
+  /** Explosion radius: base + perCell * sqrt(gunpowder cells consumed), capped. */
+  explosionBaseRadius: 2.5,
+  explosionRadiusPerCell: 0.8,
+  explosionMaxRadius: 9,
+  /** Gunpowder this far beyond the blast radius is set alight too (so trails act as fuses). */
+  explosionFuseReach: 1.5,
+  /** Chance an empty cell inside the blast catches fire (scaled down toward the edge). */
+  explosionFireChance: 0.45,
+  /** Damage at the centre, falling off to 0 at the edge (to the witch and creatures). */
+  explosionDamage: 40,
+  /** Push speed at the centre, cells/s, falling off to 0 at the edge. */
+  explosionPush: 34,
+
   // --- Levels and the run ---
   /** Charges per material in a glyph chest (two materials per chest). */
   chestChargesMin: 12,
@@ -207,6 +237,8 @@ export const TUNING = {
   ventFireChance: 0.12,
   /** HP restored at each Glyph Shrine. */
   shrineHeal: 25,
+  /** Gold for each extra gift at a shrine (the first gift is free). */
+  shrineExtraCost: 25,
   /** After your own fire or steam burst lands within this many cells of you, burns count as your own for a while. */
   ownBurstRadius: 14,
   ownBurstTicks: 300,
@@ -214,6 +246,8 @@ export const TUNING = {
   // --- Harvesting ---
   /** Max charges of each material in the glyph pouch. */
   pouchCap: 50,
+  /** Max gold in the wallet. */
+  walletCap: 999,
   /** Max distance from the witch to a harvested cell, in cells. */
   harvestRange: 12,
   /** Radius around the cursor that harvesting pulls from, in cells. */

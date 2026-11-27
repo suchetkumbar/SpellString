@@ -102,3 +102,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); 
 .shrine-text { opacity: 0.8; font-size: 12px; }
 .screen.screen-is-title { background: #050507; }
 .hint[hidden] { display: none; }
+.hud-wand-row { white-space: pre; }
+.hud-wand-row:not(.active) { opacity: 0.5; }
+.shrine-card.cant { opacity: 0.4; cursor: default; }
+.shrine-card.newWand .shrine-name { color: #9be22d; font-size: 16px; font-weight: 700; }

@@ -276,7 +276,7 @@ test('run flow: title, a generated level, the shrine, death with a postcard, and
   });
   await expect(screen).toContainText('YOU DIED');
   const postcard = await page.locator('.postcard').inputValue();
-  expect(postcard).toContain('SPELLSTRING  seed 48213  depth 2/4');
+  expect(postcard).toContain('SPELLSTRING  seed 48213  depth 2/6');
   expect(postcard).toContain('killed by: ^ (burning)');
   expect(postcard).toContain('reactions found:');
   const t0 = Date.now();

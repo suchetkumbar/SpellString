@@ -71,28 +71,39 @@ export class Hud {
 
   /** The spell in its slots. Matter with no charges is greyed; a fizzle flashes red. */
   private updateWand(game: Game): void {
-    const w = game.wand;
-    const spell = w.spell;
-    const flags = spell.parse.tokens.map((t) => {
-      if (t.kind !== 'matter') return '';
-      if (game.tick - (game.caster.fizzledAt[t.material] ?? -1e9) < FIZZLE_FLASH_TICKS) return 'fizzle';
-      return game.pouch.count(t.material) === 0 ? 'nocharge' : '';
+    // One line per wand; the one in hand is marked. Matter with no charges is greyed; a fizzle flashes red.
+    const lines = game.wands.map((w, n) => {
+      const spell = w.spell;
+      const flags = spell.parse.tokens.map((t) => {
+        if (t.kind !== 'matter') return '';
+        if (game.tick - (game.caster.fizzledAt[t.material] ?? -1e9) < FIZZLE_FLASH_TICKS) return 'fizzle';
+        return game.pouch.count(t.material) === 0 ? 'nocharge' : '';
+      });
+      const ready = !w.busy && w.mana >= spell.plan.manaCost;
+      return { w, n, spell, flags, ready, active: n === game.activeWand };
     });
-    const ready = !w.busy && w.mana >= spell.plan.manaCost;
-    const key = `${spell.text}|${flags.join(',')}|${ready}`;
+    const key = lines.map((l) => `${l.active}${l.spell.text}|${l.flags.join(',')}|${l.ready}|${l.w.stats.slots}`).join('/');
     if (key === this.wandKey) return;
     this.wandKey = key;
     this.wand.textContent = '';
-    const label = document.createElement('span');
-    label.className = 'hud-wand-label';
-    label.textContent = 'WAND ';
-    const cost = document.createElement('span');
-    cost.className = ready ? 'hud-wand-cost' : 'hud-wand-cost busy';
-    cost.textContent = ` ${spell.plan.manaCost} MP`;
-    const tip = document.createElement('span');
-    tip.className = 'hud-wand-tip';
-    tip.textContent = '  Tab: edit';
-    this.wand.append(label, renderSpellSlots(spell.parse.tokens, w.stats.slots, (i) => flags[i] ?? ''), cost, tip);
+    for (const l of lines) {
+      const row = document.createElement('div');
+      row.className = l.active ? 'hud-wand-row active' : 'hud-wand-row';
+      const label = document.createElement('span');
+      label.className = 'hud-wand-label';
+      label.textContent = game.wands.length > 1 ? `${l.active ? '▸' : ' '}${l.n + 1} ` : 'WAND ';
+      const cost = document.createElement('span');
+      cost.className = l.ready ? 'hud-wand-cost' : 'hud-wand-cost busy';
+      cost.textContent = ` ${l.spell.plan.manaCost} MP`;
+      row.append(label, renderSpellSlots(l.spell.parse.tokens, l.w.stats.slots, (i) => l.flags[i] ?? ''), cost);
+      if (l.active) {
+        const tip = document.createElement('span');
+        tip.className = 'hud-wand-tip';
+        tip.textContent = game.wands.length > 1 ? '  Tab: edit · 1-3: switch' : '  Tab: edit';
+        row.append(tip);
+      }
+      this.wand.append(row);
+    }
   }
 
   /** One entry per material with charges (or being harvested right now). */

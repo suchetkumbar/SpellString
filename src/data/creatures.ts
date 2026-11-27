@@ -113,6 +113,8 @@ export interface CreatureDef {
 export const HEAVY_IMPACT: Readonly<Partial<Record<MaterialKey, number>>> = {
   sand: 4,
   rock: 6,
+  ice: 5,
+  gold: 15,
 };
 
 export const CREATURES: readonly CreatureDef[] = [
@@ -143,6 +145,7 @@ export const CREATURES: readonly CreatureDef[] = [
       water: { dps: 6, slow: 0.4 },
       sand: { slow: 0.4 },
       oil: { slow: 0.4 },
+      acid: { dps: 30 },
     },
   },
   {
@@ -173,6 +176,8 @@ export const CREATURES: readonly CreatureDef[] = [
       water: { dps: -4 }, // slimes mend in water
       sand: { slow: 0.5 },
       oil: { slow: 0.7 },
+      acid: { dps: 20 },
+      gunpowder: { slow: 0.6 },
     },
   },
   {
@@ -212,6 +217,8 @@ export const CREATURES: readonly CreatureDef[] = [
       water: { dps: 70, slow: 0.5 },
       steam: { dps: 45 },
       sand: { slow: 0.5 },
+      acid: { dps: 25 },
+      ice: { dps: 8 }, // cold
     },
   },
   {
@@ -250,6 +257,8 @@ export const CREATURES: readonly CreatureDef[] = [
       steam: { dps: 10 },
       oil: { dps: -3 }, // at home in tar
       sand: { slow: 0.5 },
+      acid: { dps: 20 },
+      gunpowder: { slow: 0.6 },
     },
   },
   {
@@ -278,6 +287,8 @@ export const CREATURES: readonly CreatureDef[] = [
       steam: { immune: true },
       water: { slow: 0.6 },
       sand: { slow: 0.7 },
+      acid: { dps: 45 }, // acid eats stone
+      gunpowder: { slow: 0.8 },
     },
   },
 ];

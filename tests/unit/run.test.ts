@@ -52,7 +52,7 @@ describe('the run', () => {
     expect(Array.from(a.game.grid.mat)).toEqual(Array.from(b.game.grid.mat));
   });
 
-  it('descends through two biomes, two levels each, with a shrine between levels', () => {
+  it('descends through three biomes, two levels each, with a shrine between levels', () => {
     const run = new Run(5, 'run', LEVELS);
     expect(run.totalLevels).toBe(BIOMES.length * LEVELS_PER_BIOME);
     expect(run.place).toBe('Sandstone Hollows 1-1');
@@ -65,7 +65,7 @@ describe('the run', () => {
       expect(run.phase).toBe('level');
       seen.push(run.place);
     }
-    expect(seen).toEqual(['Sandstone Hollows 1-1', 'Sandstone Hollows 1-2', 'Tar Pits 2-1', 'Tar Pits 2-2']);
+    expect(seen).toEqual(['Sandstone Hollows 1-1', 'Sandstone Hollows 1-2', 'Tar Pits 2-1', 'Tar Pits 2-2', 'Frozen Vaults 3-1', 'Frozen Vaults 3-2']);
     reachExit(run);
     expect(run.phase).toBe('won');
   });
@@ -89,7 +89,7 @@ describe('the run', () => {
     expect(offer.kind === 'glyph' && g2.owns(offer.glyph)).toBe(true);
   });
 
-  it('starts knowing only >, and the shrines teach ) and +', () => {
+  it('starts knowing only >, and the shrines teach new glyphs', () => {
     const run = new Run(3, 'run', LEVELS);
     expect(run.game.owns('>')).toBe(true);
     expect(run.game.owns(')')).toBe(false);
@@ -102,8 +102,9 @@ describe('the run', () => {
       if (o?.kind === 'glyph') learned.add(o.glyph);
       run.choose(i);
     }
-    expect([...learned].sort()).toEqual([')', '+']);
-    expect(run.game.owns(')') && run.game.owns('+')).toBe(true);
+    expect(learned.size).toBe(2);
+    for (const ch of learned) expect(run.game.owns(ch), ch).toBe(true);
+    expect(learned.has('>')).toBe(false);
   });
 
   it('wand upgrades change the stats', () => {
@@ -129,7 +130,7 @@ describe('the run', () => {
     for (let t = 0; t < 30 && run.phase === 'level'; t++) run.step(NO_INPUT);
     expect(run.phase).toBe('dead');
     expect(run.postcard()).toBe(
-      ['SPELLSTRING  seed 48213  depth 1/4', 'killed by: ^ (burning)', 'best spell: +>^   reactions found: 1'].join('\n'),
+      ['SPELLSTRING  seed 48213  depth 1/6', 'killed by: ^ (burning)', 'best spell: +>^   reactions found: 1'].join('\n'),
     );
   });
 

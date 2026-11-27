@@ -37,6 +37,13 @@ export function sceneView(game: Game, styles: StyleTable, a: number, now: number
   for (const c of game.carriers.list) {
     const cx = c.prevX + (c.x - c.prevX) * a;
     const cy = c.prevY + (c.y - c.prevY) * a;
+    if (c.stuck) {
+      // A mine lying in wait: its _ blinks, alternating with what it holds.
+      const m = c.payload[0];
+      const showPayload = m !== undefined && Math.floor(now / 400) % 2 === 1;
+      entities.push({ style: showPayload ? (styles.materialFirst[m] as number) + top : e.mine, x: cx, y: cy });
+      continue;
+    }
     let style: number;
     if (c.kinetic) style = e.kinetic;
     else if (c.payload.length === 0) style = styles.materialGhost[c.dud] as number;

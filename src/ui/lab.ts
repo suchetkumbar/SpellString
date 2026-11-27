@@ -44,7 +44,7 @@ export class Lab {
       sw.className = 'lab-swatch';
       sw.dataset.material = String(def.id);
       const num = document.createElement('b');
-      num.textContent = String(n + 1);
+      num.textContent = n < 9 ? String(n + 1) : n === 9 ? '0' : '·';
       const glyph = document.createElement('span');
       glyph.textContent = def.glyph;
       glyph.style.color = def.color;
@@ -59,7 +59,7 @@ export class Lab {
     const help = document.createElement('div');
     help.className = 'lab-help';
     help.textContent =
-      'left: paint · right: erase · wheel: brush · shift: overwrite · J/K: pick/spawn creature · C: clear · P: pause · N: step · L: exit';
+      'left: paint · right: erase · wheel: brush · [ ]: material · shift: overwrite · J/K: pick/spawn creature · C: clear · P: pause · N: step · L: exit';
     panel.append(help);
     this.refresh();
   }
@@ -85,8 +85,15 @@ export class Lab {
 
     let steps = 0;
     LAB_PALETTE.forEach((key, n) => {
-      if (input.wasPressed(`Digit${n + 1}`) || input.wasPressed(`Numpad${n + 1}`)) this.material = MAT[key];
+      if (n > 9) return;
+      const digit = (n + 1) % 10;
+      if (input.wasPressed(`Digit${digit}`) || input.wasPressed(`Numpad${digit}`)) this.material = MAT[key];
     });
+    const step = (input.actionPressed('labNext') ? 1 : 0) - (input.actionPressed('labPrev') ? 1 : 0);
+    if (step !== 0) {
+      const at = LAB_PALETTE.findIndex((k) => MAT[k] === this.material);
+      this.material = MAT[LAB_PALETTE[(at + step + LAB_PALETTE.length) % LAB_PALETTE.length]!];
+    }
     if (input.wheel !== 0) {
       this.brush = Math.min(TUNING.labBrushMax, Math.max(0, this.brush - input.wheel));
     }
