@@ -12,7 +12,8 @@ import { DebugOverlay } from './ui/debugOverlay';
 import { Lab } from './ui/lab';
 import { Hud } from './ui/hud';
 import { SpellEditor } from './ui/editor';
-import type { RenderEntity } from './render/renderer';
+import type { RenderEntity, RenderLabel } from './render/renderer';
+import { creatureView } from './render/creatureView';
 
 declare global {
   interface Window {
@@ -169,7 +170,7 @@ async function boot(): Promise<void> {
     const paused = editor.isOpen;
 
     // Lab edits apply between ticks, using last frame's view for the mouse cell.
-    const labSteps = paused ? 0 : lab.update(input, game.sim, input.mouseCell(renderer.view, dpr));
+    const labSteps = paused ? 0 : lab.update(input, game, input.mouseCell(renderer.view, dpr));
 
     if (game.player.dead && input.actionPressed('restart')) restart();
     if (input.actionPressed('jump')) jumpLatch = true;
@@ -197,7 +198,7 @@ async function boot(): Promise<void> {
 
     const entities: RenderEntity[] = [];
     const top = styles.shades - 1;
-    for (const c of game.caster.carriers) {
+    for (const c of game.carriers.list) {
       const cx = c.prevX + (c.x - c.prevX) * a;
       const cy = c.prevY + (c.y - c.prevY) * a;
       let style: number;
@@ -212,7 +213,7 @@ async function boot(): Promise<void> {
       }
       entities.push({ style, x: cx, y: cy });
     }
-    for (const f of game.caster.fx) {
+    for (const f of game.effects.fx) {
       const style = f.kind === 'fizzle' && f.material > 0 ? (styles.materialGhost[f.material] as number) : styles.entity.spark;
       entities.push({ style, x: f.prevX + (f.x - f.prevX) * a, y: f.prevY + (f.y - f.prevY) * a });
     }
@@ -223,8 +224,12 @@ async function boot(): Promise<void> {
         y: g.prevY + (g.y - g.prevY) * a,
       });
     }
+    const labels: RenderLabel[] = [];
+    creatureView(game, styles, a, entities, labels);
     const e = styles.entity;
-    const look = p.dead
+    // After a creature's blow lands she blinks through her i-frames.
+    const blink = !p.dead && p.invuln > 0 && (now >> 6) % 2 === 0;
+    const look = p.dead || blink
       ? e.playerDead
       : p.burning > 0 && (now >> 6) % 2 === 0
         ? e.playerBurning
@@ -253,6 +258,7 @@ async function boot(): Promise<void> {
         active: game.sim.chunkActive,
       },
       showActiveChunks: debug.visible,
+      labels,
     });
     const renderMs = performance.now() - renderStart;
     hud.update(game);

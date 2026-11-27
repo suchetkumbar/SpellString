@@ -1,5 +1,6 @@
+import { CREATURES, type CreatureKey } from '../data/creatures';
 import { MATERIALS } from '../data/materials';
-import { ENTITY_GLYPHS, GHOST_COLOR, type EntityGlyphKey } from '../data/glyphs';
+import { CREATURE_HURT_COLOR, CREATURE_WINDUP_COLOR, ENTITY_GLYPHS, GHOST_COLOR, type EntityGlyphKey } from '../data/glyphs';
 import { TUNING } from '../data/tuning';
 import { scaleColor } from './color';
 
@@ -25,6 +26,15 @@ export interface StyleTable {
   /** materialGhost[id] = the material's glyph in grey (fizzles), or -1. */
   readonly materialGhost: Int16Array;
   readonly entity: Readonly<Record<EntityGlyphKey, number>>;
+  /** Creature looks: normal, hurt flash, burning, and the attack telegraph. */
+  readonly creature: Readonly<Record<CreatureKey, CreatureStyles>>;
+}
+
+export interface CreatureStyles {
+  readonly normal: number;
+  readonly hurt: number;
+  readonly burning: number;
+  readonly windup: number;
 }
 
 export function buildStyleTable(): StyleTable {
@@ -62,5 +72,16 @@ export function buildStyleTable(): StyleTable {
     styles.push(ENTITY_GLYPHS[key]);
   }
 
-  return { styles, shades, materialFirst, materialBands, materialShimmer, materialGhost, entity };
+  const creature = {} as Record<CreatureKey, CreatureStyles>;
+  for (const c of CREATURES) {
+    const at = (color: string): number => styles.push({ glyph: c.glyph, color }) - 1;
+    creature[c.key] = {
+      normal: at(c.color),
+      hurt: at(CREATURE_HURT_COLOR),
+      burning: at(ENTITY_GLYPHS.playerBurning.color),
+      windup: at(CREATURE_WINDUP_COLOR),
+    };
+  }
+
+  return { styles, shades, materialFirst, materialBands, materialShimmer, materialGhost, entity, creature };
 }

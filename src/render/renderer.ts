@@ -10,6 +10,16 @@ export interface RenderEntity {
   readonly y: number;
 }
 
+/** Text drawn over everything (damage numbers, telegraph marks), centered on (x, y) in cells. */
+export interface RenderLabel {
+  readonly text: string;
+  readonly x: number;
+  readonly y: number;
+  readonly color: string;
+  /** 0..1 */
+  readonly alpha: number;
+}
+
 /** Per-chunk change flags from the simulation, so the renderer can cache static chunks. */
 export interface ChunkInfo {
   readonly shift: number;
@@ -35,7 +45,8 @@ export interface RenderFrame {
   readonly harvestRing?: { readonly x: number; readonly y: number; readonly radius: number; readonly full: boolean } | undefined;
   /** Lab brush radius in cells, drawn around the cursor (0 or absent = none). */
   readonly brushRadius?: number;
-
+  /** Floating text on top of everything. */
+  readonly labels?: readonly RenderLabel[];
 }
 
 /**

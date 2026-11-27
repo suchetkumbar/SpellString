@@ -2,18 +2,31 @@ import { parseAscii } from './ascii';
 import { Grid } from './grid';
 import { MATERIAL_BY_GLYPH } from '../data/materials';
 import { SPAWN_MARKER } from '../data/glyphs';
+import { CREATURE_BY_GLYPH, type CreatureKey } from '../data/creatures';
+
+export interface CreatureSpawn {
+  readonly key: CreatureKey;
+  readonly x: number;
+  readonly y: number;
+}
 
 export interface LoadedLevel {
   readonly grid: Grid;
   /** Spawn cell (from the `@` marker), or the map center if there is none. */
   readonly spawn: { readonly x: number; readonly y: number };
+  /** Creature letters in the map (their cells are empty). */
+  readonly creatures: readonly CreatureSpawn[];
 }
 
-/** Builds a grid from an ASCII map. Material glyphs become cells; `@` marks the spawn. */
+/**
+ * Builds a grid from an ASCII map. Material glyphs become cells, `@` marks the
+ * spawn, and creature letters (b s i t G) place creatures in empty cells.
+ */
 export function loadAsciiLevel(text: string, variantSeed = 0): LoadedLevel {
   const map = parseAscii(text);
   const grid = new Grid(map.width, map.height, variantSeed);
   let spawn: { x: number; y: number } | null = null;
+  const creatures: CreatureSpawn[] = [];
 
   for (let y = 0; y < map.height; y++) {
     const row = map.rows[y] as string;
@@ -24,10 +37,15 @@ export function loadAsciiLevel(text: string, variantSeed = 0): LoadedLevel {
         spawn = { x, y };
         continue;
       }
+      const creature = CREATURE_BY_GLYPH.get(ch);
+      if (creature) {
+        creatures.push({ key: creature.key, x, y });
+        continue;
+      }
       const id = MATERIAL_BY_GLYPH.get(ch);
       if (id === undefined) throw new Error(`Unknown glyph '${ch}' in ASCII map at line ${y + 1}, column ${x + 1}`);
       if (id !== 0) grid.set(x, y, id);
     }
   }
-  return { grid, spawn: spawn ?? { x: Math.floor(map.width / 2), y: Math.floor(map.height / 2) } };
+  return { grid, spawn: spawn ?? { x: Math.floor(map.width / 2), y: Math.floor(map.height / 2) }, creatures };
 }

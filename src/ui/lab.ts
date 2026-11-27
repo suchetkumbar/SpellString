@@ -4,6 +4,14 @@ import { MAT, MATERIALS } from '../data/materials';
 import { TUNING } from '../data/tuning';
 import type { InputManager } from '../input/input';
 import { BEH, behaviorOf } from '../core/materialTable';
+import { CREATURES, type CreatureKey } from '../data/creatures';
+
+/** What the Lab edits: the material sim and the creatures. */
+export interface LabWorld {
+  readonly sim: Simulation;
+  readonly creatures: { length: number };
+  spawnCreature(key: CreatureKey, x: number, y: number): unknown;
+}
 
 /**
  * Lab mode: a sandbox for painting materials and watching the chemistry.
@@ -15,6 +23,8 @@ export class Lab {
   paused = false;
   brush: number = TUNING.labBrushDefault;
   material: number = MAT.sand;
+  /** Creature K spawns (J cycles). */
+  creature = 0;
   private last: { x: number; y: number } | null = null;
   private readonly swatches: HTMLElement[] = [];
   private readonly status: HTMLElement;
@@ -49,13 +59,14 @@ export class Lab {
     const help = document.createElement('div');
     help.className = 'lab-help';
     help.textContent =
-      'left: paint · right: erase · wheel: brush · shift: overwrite · C: clear · P: pause · N: step · L: exit';
+      'left: paint · right: erase · wheel: brush · shift: overwrite · J/K: pick/spawn creature · C: clear · P: pause · N: step · L: exit';
     panel.append(help);
     this.refresh();
   }
 
   /** Handle Lab input for this frame. Returns the number of single steps requested (N). */
-  update(input: InputManager, sim: Simulation, cursor: { x: number; y: number } | null): number {
+  update(input: InputManager, world: LabWorld, cursor: { x: number; y: number } | null): number {
+    const sim = world.sim;
     if (input.actionPressed('lab')) {
       this.enabled = !this.enabled;
       this.panel.hidden = !this.enabled;
@@ -71,7 +82,12 @@ export class Lab {
     if (input.wheel !== 0) {
       this.brush = Math.min(TUNING.labBrushMax, Math.max(0, this.brush - input.wheel));
     }
-    if (input.actionPressed('labClear')) sim.clear();
+    if (input.actionPressed('labClear')) {
+      sim.clear();
+      world.creatures.length = 0;
+    }
+    if (input.actionPressed('labCreature')) this.creature = (this.creature + 1) % CREATURES.length;
+    if (input.actionPressed('labSpawn') && cursor) world.spawnCreature(CREATURES[this.creature]!.key, cursor.x + 0.5, cursor.y + 0.5);
     if (input.actionPressed('labPause')) this.paused = !this.paused;
     if (input.actionPressed('labStep')) {
       this.paused = true;
@@ -110,7 +126,8 @@ export class Lab {
 
   private refresh(): void {
     for (const sw of this.swatches) sw.classList.toggle('selected', Number(sw.dataset.material) === this.material);
-    const text = `brush ${this.brush}${this.paused ? '   PAUSED' : ''}`;
+    const c = CREATURES[this.creature]!;
+    const text = `brush ${this.brush}   creature [K] ${c.glyph} ${c.name}${this.paused ? '   PAUSED' : ''}`;
     if (this.status.textContent !== text) this.status.textContent = text;
   }
 }

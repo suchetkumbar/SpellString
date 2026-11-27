@@ -1,5 +1,94 @@
 # Spellstring: progress log
 
+## M5: Creatures made of glyphs (done)
+
+### What changed
+- **Creature data** (`src/data/creatures.ts`): everything the spec asks for lives in one table per creature: speed, HP, size, senses, memory, attack, drops, flammability, kinetic and heavy-impact multipliers, and **how each material affects it** (damage per second, healing, slowing, immunity).
+
+  | Creature | HP | Moves | Attack (windup → effect) | Weak to | Immune / heals | Drops |
+  |---|---|---|---|---|---|---|
+  | `b` bat | 5 | flies erratically | 0.4 s hover → swoop (7 dmg) | fire, steam, water | — | nothing |
+  | `s` water slime | 24 | crawls | 0.5 s squish → lunge (8) | fire | heals in water | `~` 16, less per split |
+  | `i` ember imp | 22 | hovers to your side, above you | 0.67 s glow → fire bolt (6 + fire) | **water 70/s, steam 45/s** | fire | `^` 10 |
+  | `t` tar toad | 26 | hops | 0.57 s puff → oil spit (3 + 8 oil) | fire (catches fire), steam | heals in oil | `=` 14 |
+  | `G` stone golem | 110 | slow walk | 0.6 s wind-up → punch (18, big knockback) | **heavy impacts ×2.5** | fire, steam; kinetic ×0.35 | `#` 10 |
+- **The creature system** (`src/game/creature.ts`, `src/game/creatures.ts`):
+  - **States:** idle (wander) → chase → windup (the telegraph) → attack → recover.
+  - **Senses:** every 6 ticks, staggered per creature, it checks range plus a line of sight **blocked by solids and smoke** (`blocksSight`). Being hit by the witch also gives her away. A creature that loses sight keeps hunting her last known position for a few seconds.
+  - **Movement:** walkers step up 1-cell ledges and hop 2-cell ones. Hoppers only move by hopping. Bats jitter. Imps hover at an offset beside and above you, bobbing. Creatures sink slowly in liquids and can be buried by powders like the witch.
+  - **Telegraphs:** during the windup the creature blinks red, and a `!` above it fills in as the attack nears. Swoops and lunges lock their direction when the windup ends, so stepping aside works.
+  - **Material table applied every tick:** a single touching cell does half damage, and two or more do full. Fire sets flammable creatures alight; water puts them out.
+  - **Burning:** it damages the creature and **spreads**: burning creatures, fiery imps and a burning witch set flammable creatures and each other alight on contact, and light the oil or wood they touch. Imps are always fiery but never burn.
+  - **Slimes split** when an impact hurts but doesn't kill them: two halves, two generations deep. The halves fly apart with brief i-frames.
+  - **Drops on death:** each creature's material bursts out where it died, so you can harvest your enemies. Bats drop nothing.
+- **Combat:**
+  - **Spell hits:** a kinetic shot deals 6 × the creature's kinetic multiplier. A matter carrier deals 3 plus heavy matter per glyph (sand 4, rock 6) × the creature's heavy multiplier, then bursts its payload on the creature. Spells hit any creature, and creature projectiles hit other creatures too (an imp's bolt sets a toad in its path alight).
+  - **Knockback** scales with 1 / mass. **I-frames:** creatures get 8 ticks after an impact; the witch gets 45 ticks after a creature's blow, and blinks.
+  - **Floating damage numbers:** white for impacts on creatures, amber for damage over time (batched every 20 ticks), red for blows on the witch.
+  - The death card names the killer: "killed by: b (a bat)", or "i (an ember imp's fire bolt)".
+- **Refactor:** carriers moved out of the caster into `Carriers` (`src/game/carriers.ts`), so creatures can throw them too, each with an owner. Effects (sparks, fizzles, numbers) now live in `Effects`. Systems share a `GameContext` interface.
+- **Levels:** creature letters (`b s i t G`) in ASCII maps spawn creatures (`LoadedLevel.creatures`). The test room now has a slime near the spawn, two bats in the open air, a golem on the middle platform, and an imp with a toad by the burning scaffold, plus a toad on the oil.
+- **Lab:** J picks a creature and K spawns it at the cursor. C also clears creatures.
+- **Rendering:** creature glyphs with hurt, burning and windup colors, plus a text label layer in the renderer for numbers and `!`.
+- **Data fixes:** the toad's spit speed is 22 (a lob at 17 only reaches 6.9 cells, short of its 11-cell attack range). Lob aiming compensates for per-tick integration.
+
+### How to try it
+1. Run `npm run dev`.
+2. The slime next to the spawn notices you, squishes (blinking red, with a `!`), then lunges. Shoot it with `>`: it splits, and the halves split again.
+3. Kill a slime and harvest its puddle with right click.
+4. Head right to the scaffold: the imp hovers and throws fire bolts, and the toad spits oil.
+   - Harvest water, write `>~3`, and douse the imp.
+   - Stand so the imp's bolt passes through the toad, or let the toad's oil land near the imp's fire.
+5. Find the golem below the middle platform. Kinetic bolts barely scratch it; `>.3` hits hard.
+6. In Lab (L), press J to pick a creature and K to drop it at the cursor, to set up fights.
+
+### Tests (161 unit, 6 e2e)
+- **The done-when list:**
+  - **Water hurts an imp** (it dies under a stream of water), while the same imp under fire takes nothing.
+  - **A toad ignites when fire touches it**, then keeps hopping (at least 3 hops, more than 3 distinct cells) while losing HP.
+  - **Smoke blocks line of sight:** checked with `canSee` against smoke, rock, sand, water and steam, and in play (a bat behind a smoke screen stays idle; in the open it hunts).
+  - **A slime's death leaves water you can harvest:** 16 cells, at least 10 of them harvested back.
+- **Behavior:**
+  - Slimes split twice and the smallest doesn't split.
+  - **A bat completes a full windup before its first attack and before she is hurt.**
+  - Player i-frames, and knockback plus i-frames plus a damage number on a creature.
+  - **Golems:** kinetic hits do 0.35×, `>.3` does more than 5× that, and fire does nothing to them.
+  - An imp sets a toad alight by touch.
+  - **An imp's fire bolt hits a toad and sets it burning.**
+  - A burning witch lights a toad, and a fiery imp lights her.
+  - Each creature's drop (bats drop nothing), a bat killing her with the right death text, and a toad spitting oil.
+- **Data and plumbing:** lob aiming lands within 0.75 cells for four targets, creature data integrity (no glyph clashes, every attack telegraphed at least 18 ticks), level spawning, and determinism for a seed.
+- **Performance:** 40 hunting creatures cost 0.09 ms/tick.
+- **Playwright:** the test room has creatures, and a bolt at a golem lowers its HP and shows a number.
+
+### Feel decisions to review
+- **Windups (telegraphs):** bat 24 ticks, slime 30, toad 34, golem 36, imp 40. Recover is 30 ticks after every attack, and then cooldowns run.
+- **Senses:** bat 18 cells, imp 20, toad 14, slime and golem 12. Memory is 4–6 s after losing sight.
+- **HP:** bat 5 (one bolt), slime 24 (splits), imp 22, toad 26, golem 110. **Damage to the witch:** swoop 7, lunge 8, fire bolt 6 (+ burning), spit 3 (+ oil), punch 18.
+- **Imp vs water:** 70 dps at full contact. A `>~3` burst usually kills it; a single `>~` takes it to about half.
+- **Golem vs heavy matter:** `>.3` deals 3 + 3 × 4 × 2.5 = 33.
+- **Witch i-frames** are 0.75 s (only against creature blows, not materials).
+- **Damage numbers** last 0.83 s and rise 2.2 cells/s.
+
+### Ambiguities resolved (please check)
+- **Self-inflicted versus world damage:** creatures take damage from every spell, the witch's and other creatures', but never from contact with each other except through burning.
+- **What "telegraph" means:** every attack has a visible windup (red blinking plus `!`) of at least 0.4 s. Lunges and swoops then commit to the direction they locked, so you can sidestep them.
+- **Slime splitting:** only on impacts (bolts, punches, spit), not on damage over time. Each half keeps half of the remaining HP, so splitting never adds HP overall.
+- **Smoke blocks sight; steam doesn't.** The spec names smoke only.
+- **Imps** are permanently fiery: touching one sets you alight, and they light oil and wood they pass.
+- **Creatures don't block each other or the witch.** Bodies overlap, and contact only matters for attacks and fire.
+
+### Known issues
+- **No pathfinding.** Walkers head straight for you (hopping 2-cell steps), and flyers fly straight and can press against walls until they lose sight of you. M6's caves may need simple steering.
+- Creatures don't avoid hazards: slimes walk into fire, and imps hover over water.
+- A creature spawned overlapping solid ground pops upward. Level spawns are cell-centered, so this only affects Lab and test spawns.
+- "Killed by your own fire" still isn't tracked (see M4).
+
+### Dependencies
+No new dependencies.
+
+---
+
 ## M4: Spells v1 (done)
 
 ### What changed

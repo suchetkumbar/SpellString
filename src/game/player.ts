@@ -50,6 +50,8 @@ export class Player {
   killedBy: DamageSource | null = null;
   /** Damage taken this tick (for HUD flashes / numbers). */
   hurtThisTick = 0;
+  /** Ticks left during which creature attacks are ignored (after one lands). */
+  invuln = 0;
 
   /** Ticks since last standing on ground (coyote time). */
   private airTicks = 1_000_000;
@@ -91,12 +93,28 @@ export class Player {
     }
   }
 
+  /** A blow from a creature: damage and knockback, then i-frames. Returns false if it was ignored. */
+  hit(amount: number, from: DamageSource, dirX: number, dirY: number, knock: number): boolean {
+    if (this.dead || this.invuln > 0) return false;
+    this.damage(amount, from);
+    this.invuln = TUNING.playerHitIFrames;
+    this.body.vx += dirX * knock;
+    this.body.vy += dirY * knock * 0.6 - 5;
+    return true;
+  }
+
+  /** Something burning touched her. Water still puts it out next tick. */
+  ignite(): void {
+    if (!this.dead) this.burning = TUNING.burnTicks;
+  }
+
   /** One fixed tick of movement and statuses. */
   update(input: TickInput, grid: Grid, sim: Simulation): void {
     const b = this.body;
     this.prevX = b.x;
     this.prevY = b.y;
     this.hurtThisTick = 0;
+    if (this.invuln > 0) this.invuln--;
     if (this.dead) return;
 
     this.buried = refreshBuried(grid, b) > 0;

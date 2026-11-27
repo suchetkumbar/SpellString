@@ -21,6 +21,14 @@ export type EntityGlyphKey = keyof typeof ENTITY_GLYPHS;
 /** Glyph used in ASCII maps to mark the player spawn. */
 export const SPAWN_MARKER = '@';
 
+/** A creature flashes this color when hit. */
+export const CREATURE_HURT_COLOR = '#ffffff';
+/** A creature winding up an attack flashes this color (the telegraph), with a ! above it. */
+export const CREATURE_WINDUP_COLOR = '#ff3b3b';
+
+/** Floating number colors: impacts on creatures, damage over time, hits on the witch, healing. */
+export const FLOAT_COLORS = { hit: '#ffffff', burn: '#ffb020', hurt: '#ff4d4d', heal: '#9be22d' } as const;
+
 /** Fizzled glyphs (no charges) are drawn in this grey. */
 export const GHOST_COLOR = '#6b6f7c';
 

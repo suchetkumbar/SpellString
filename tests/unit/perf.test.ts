@@ -94,3 +94,24 @@ describe('casting performance', () => {
     expect(worst).toBeLessThan(40); // generous: the budget is 4 ms; this only catches blowups
   });
 });
+
+describe('creature performance', () => {
+  it('40 hunting creatures stay well inside the tick budget', async () => {
+    const { Game, NO_INPUT } = await import('../../src/game/game');
+    const rows = ['#'.repeat(160)];
+    for (let y = 0; y < 60; y++) rows.push('#' + ' '.repeat(158) + '#');
+    rows.push('#'.repeat(160));
+    rows[58] = '#' + ' '.repeat(78) + '@' + ' '.repeat(79) + '#';
+    const g = Game.fromAscii(rows.join('\n'), 1);
+    g.player.hp = 1e9;
+    const keys = ['bat', 'slime', 'imp', 'toad', 'golem'] as const;
+    for (let i = 0; i < 40; i++) g.spawnCreature(keys[i % 5]!, 10 + i * 3.5, 20 + (i % 7) * 5);
+    for (let t = 0; t < 30; t++) g.step(NO_INPUT);
+    const ticks = 300;
+    const start = performance.now();
+    for (let t = 0; t < ticks; t++) g.step(NO_INPUT);
+    const avg = (performance.now() - start) / ticks;
+    console.log(`[perf] 40 creatures: ${avg.toFixed(3)} ms/tick avg (${g.creatures.length} alive at the end)`);
+    expect(avg).toBeLessThan(8);
+  });
+});

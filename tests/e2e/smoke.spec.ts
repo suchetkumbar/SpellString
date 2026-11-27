@@ -190,3 +190,43 @@ test('spell editor: Tab pauses, only owned glyphs type, paste highlights, Enter 
   expect(await page.evaluate(() => window.spellstring!.game.tick)).toBeGreaterThan(t0 + 10);
   expect(errors).toEqual([]);
 });
+
+test('creatures: the room has them, and a bolt hurts one with a floating number', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  await page.goto('/');
+  await page.waitForFunction(() => window.spellstring?.game.player.body.grounded === true);
+  expect(await page.evaluate(() => window.spellstring!.game.creatures.length)).toBeGreaterThanOrEqual(5);
+
+  // A golem right next to the witch (slow, with a long windup before it can punch). Let it land, then aim.
+  const id = await page.evaluate(() => {
+    const g = window.spellstring!.game;
+    return g.spawnCreature('golem', g.player.x + 5, g.player.y - 0.5).id;
+  });
+  await page.waitForFunction((gid) => window.spellstring!.game.creatures.find((c) => c.id === gid)?.body.grounded === true, id);
+  const target = await page.evaluate((gid) => {
+    const s = window.spellstring!;
+    const golem = s.game.creatures.find((c) => c.id === gid)!;
+    const v = s.view!;
+    return { id: gid, x: (v.originX + golem.x * v.cell) / s.dpr, y: (v.originY + golem.y * v.cell) / s.dpr };
+  }, id);
+  const box = (await page.locator('#game').boundingBox())!;
+  await page.mouse.click(box.x + target.x, box.y + target.y);
+  // Hit: it lost HP, and a damage number floated up.
+  await expect
+    .poll(
+      () =>
+        page.evaluate((id) => {
+          const g = window.spellstring!.game;
+          const golem = g.creatures.find((c) => c.id === id);
+          return golem !== undefined && golem.hp < golem.maxHp;
+        }, target.id),
+      { timeout: 3000 },
+    )
+    .toBe(true);
+  expect(await page.evaluate(() => window.spellstring!.game.effects.texts.length)).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});

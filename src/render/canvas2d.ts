@@ -182,6 +182,25 @@ export class Canvas2DRenderer implements Renderer {
         cell,
       );
     }
+
+    // Labels: bold text with a dark outline so it reads over anything.
+    if (frame.labels && frame.labels.length > 0) {
+      ctx.font = `700 ${Math.max(8, Math.round(cell * 0.8))}px ${this.fontFamily}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(2, Math.round(cell * 0.18));
+      ctx.strokeStyle = COLORS.outside;
+      for (const l of frame.labels) {
+        ctx.globalAlpha = l.alpha;
+        const px = Math.round(ox + l.x * cell);
+        const py = Math.round(oy + l.y * cell);
+        ctx.strokeText(l.text, px, py);
+        ctx.fillStyle = l.color;
+        ctx.fillText(l.text, px, py);
+      }
+      ctx.globalAlpha = 1;
+    }
   }
 
   /** Render one chunk's cells into its cache bitmap. */

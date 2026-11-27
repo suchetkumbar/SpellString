@@ -1,10 +1,16 @@
 import { Rng } from '../core/rng';
 import type { Grid } from '../core/grid';
-import { loadAsciiLevel } from '../core/level';
+import { loadAsciiLevel, type CreatureSpawn } from '../core/level';
 import { Simulation } from '../core/sim';
+import type { CreatureKey } from '../data/creatures';
 import { MATERIAL_BY_GLYPH } from '../data/materials';
 import { SPELL_GLYPH_BY_CHAR, STARTING_GLYPHS } from '../data/spellGlyphs';
-import { Caster, type CastContext, type MessageKind } from './casting';
+import { Carriers } from './carriers';
+import { Caster } from './casting';
+import type { GameContext, MessageKind } from './context';
+import { Creature } from './creature';
+import { updateCreatures } from './creatures';
+import { Effects } from './effects';
 import { Harvester, Pouch } from './harvest';
 import type { TickInput } from './input';
 import { Player } from './player';
@@ -21,8 +27,8 @@ export interface GameMessage {
 
 const MAX_MESSAGES = 6;
 
-/** One level in play: the world, the witch, her pouch, wand and spells. */
-export class Game implements CastContext {
+/** One level in play: the world, the witch, her pouch and wand, creatures and spells in flight. */
+export class Game implements GameContext {
   tick = 0;
   readonly rng: Rng;
   readonly player: Player;
@@ -31,25 +37,31 @@ export class Game implements CastContext {
   readonly harvester = new Harvester();
   readonly wand = new Wand();
   readonly caster = new Caster();
+  readonly carriers = new Carriers();
+  readonly effects = new Effects();
+  readonly creatures: Creature[] = [];
   /** Delivery and modifier glyphs known (matter glyphs are owned via the pouch). */
   readonly known = new Set<string>(STARTING_GLYPHS);
   /** Recent messages for the HUD, newest last. */
   readonly messages: GameMessage[] = [];
+  private nextCreatureId = 1;
 
   constructor(
     readonly grid: Grid,
     readonly spawn: { readonly x: number; readonly y: number },
     readonly seed: number,
+    creatures: readonly CreatureSpawn[] = [],
   ) {
     this.rng = new Rng(seed);
     // The world gets its own stream so player/creature randomness never perturbs the chemistry.
     this.sim = new Simulation(grid, this.rng.fork(1).nextU32());
     this.player = new Player(spawn.x + 0.5, spawn.y + 0.5);
+    for (const c of creatures) this.spawnCreature(c.key, c.x + 0.5, c.y + 0.5);
   }
 
   static fromAscii(text: string, seed: number): Game {
-    const { grid, spawn } = loadAsciiLevel(text, seed);
-    return new Game(grid, spawn, seed);
+    const { grid, spawn, creatures } = loadAsciiLevel(text, seed);
+    return new Game(grid, spawn, seed, creatures);
   }
 
   /**
@@ -68,12 +80,22 @@ export class Game implements CastContext {
     if (this.messages.length > MAX_MESSAGES) this.messages.shift();
   }
 
+  /** Add a creature centered at (x, y) in cell units. */
+  spawnCreature(key: CreatureKey, x: number, y: number, generation = 0): Creature {
+    const c = new Creature(this.nextCreatureId++, key, x, y, generation);
+    this.creatures.push(c);
+    return c;
+  }
+
   /** Advance one fixed tick. `simulateWorld: false` freezes the materials (Lab pause) but not the player. */
   step(input: TickInput, simulateWorld = true): void {
     if (simulateWorld) this.sim.step();
     this.player.update(input, this.grid, this.sim);
     this.harvester.update(input, this.player, this.grid, this.sim, this.pouch, this.rng);
     this.caster.update(this, input);
+    this.carriers.update(this);
+    updateCreatures(this);
+    this.effects.update();
     this.tick++;
   }
 }

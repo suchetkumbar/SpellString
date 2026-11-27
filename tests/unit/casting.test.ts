@@ -81,8 +81,8 @@ describe('casting', () => {
     expect(g.wand.mana).toBe(g.wand.stats.maxMana);
     click(g, 30, g.player.y);
     expect(g.wand.mana).toBe(g.wand.stats.maxMana - TUNING.spellCost.delivery);
-    expect(g.caster.carriers).toHaveLength(1);
-    const c = g.caster.carriers[0]!;
+    expect(g.carriers.list).toHaveLength(1);
+    const c = g.carriers.list[0]!;
     expect(c.kinetic).toBe(true);
     expect(c.vx).toBeCloseTo(TUNING.boltSpeed, 0);
     expect(Math.abs(c.vy)).toBeLessThan(1);
@@ -106,11 +106,11 @@ describe('casting', () => {
   it('casts in one spell fire a few ticks apart', () => {
     const g = setup(ROOM, '>>>>');
     g.step(tickInput({ cast: true, aimX: 30, aimY: 6 }));
-    expect(g.caster.carriers).toHaveLength(1);
+    expect(g.carriers.list).toHaveLength(1);
     run(g, TUNING.wandCastDelayTicks, tickInput({ aimX: 30, aimY: 6 }));
-    expect(g.caster.carriers).toHaveLength(2);
+    expect(g.carriers.list).toHaveLength(2);
     run(g, TUNING.wandCastDelayTicks * 2, tickInput({ aimX: 30, aimY: 6 }));
-    expect(g.caster.carriers).toHaveLength(4);
+    expect(g.carriers.list).toHaveLength(4);
     expect(g.wand.queue).toHaveLength(0);
     expect(g.wand.recharge).toBeGreaterThan(0);
   });
@@ -119,16 +119,16 @@ describe('casting', () => {
     const g = setup(ROOM, '>');
     g.wand.mana = 2;
     click(g, 30, 6);
-    expect(g.caster.carriers).toHaveLength(0);
+    expect(g.carriers.list).toHaveLength(0);
     expect(g.messages.at(-1)?.text).toContain('Not enough mana');
   });
 
   it('+>~ fans out three carriers and spends three water', () => {
     const g = setup(ROOM, '+>~', { '~': 10 });
     click(g, 30, 6);
-    expect(g.caster.carriers).toHaveLength(3);
+    expect(g.carriers.list).toHaveLength(3);
     expect(g.pouch.count(MAT.water)).toBe(7);
-    const angles = g.caster.carriers.map((c) => Math.atan2(c.vy, c.vx)).sort((a, b) => a - b);
+    const angles = g.carriers.list.map((c) => Math.atan2(c.vy, c.vx)).sort((a, b) => a - b);
     const step = (TUNING.splitSpreadDeg * Math.PI) / 180;
     expect(angles[1]! - angles[0]!).toBeCloseTo(step, 3);
     expect(angles[2]! - angles[1]!).toBeCloseTo(step, 3);
@@ -148,7 +148,7 @@ describe('casting', () => {
   it('a carrier whose whole payload fizzled is a dud, not a kinetic shot', () => {
     const g = setup(ROOM, '>~', {}, ['~']);
     click(g, 30, 6);
-    expect(g.caster.carriers[0]).toMatchObject({ kinetic: false, dud: MAT.water, payload: [] });
+    expect(g.carriers.list[0]).toMatchObject({ kinetic: false, dud: MAT.water, payload: [] });
   });
 
   it('a bolt never hits the witch as it leaves the wand', () => {
@@ -258,7 +258,7 @@ describe('scenarios: the M4 example spells in the world', () => {
       { '=': 10 },
     );
     click(g, 20, 3, 600);
-    expect(g.caster.carriers).toHaveLength(0);
+    expect(g.carriers.list).toHaveLength(0);
     expect(g.grid.count(MAT.oil)).toBe(3 * TUNING.burstCellsPerGlyph);
     // A puddle: every oil cell lies in the bottom row or the one above it, spread out wide.
     let minX = 99;

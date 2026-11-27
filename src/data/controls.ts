@@ -19,6 +19,10 @@ export const CONTROLS = {
   labClear: ['KeyC'],
   labPause: ['KeyP'],
   labStep: ['KeyN'],
+  /** Lab: cycle the creature K spawns. */
+  labCreature: ['KeyJ'],
+  /** Lab: spawn the chosen creature at the cursor. */
+  labSpawn: ['KeyK'],
   /** Held while painting in Lab: overwrite existing cells instead of filling only empty space. */
   labOverwrite: ['ShiftLeft', 'ShiftRight'],
 } as const satisfies Record<string, readonly string[]>;

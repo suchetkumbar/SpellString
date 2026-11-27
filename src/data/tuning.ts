@@ -178,6 +178,27 @@ export const TUNING = {
   /** Multiplier on damage the witch takes from her own spells. */
   selfDamageScale: 1,
 
+  // --- Creatures (per-creature numbers live in src/data/creatures.ts) ---
+  /** Creatures look for the player every this many ticks (staggered per creature). */
+  creatureSenseEvery: 6,
+  /** Ticks a creature ignores further impacts after being hit (i-frames). */
+  creatureHitIFrames: 8,
+  /** Ticks the witch ignores further creature attacks after one lands (i-frames). */
+  playerHitIFrames: 45,
+  /** Base impact damage of a matter carrier hitting a creature (kinetic shots use kineticDamage). */
+  carrierImpactDamage: 3,
+  /** Material contact: this many touching cells counts as full contact (fewer scale down). */
+  materialFullContactCells: 2,
+  /** Gravity multiplier for walkers and hoppers in liquid. */
+  creatureSwimGravityScale: 0.25,
+  /** Damage over time is shown as one floating number every this many ticks. */
+  damageNumberEvery: 20,
+  /** Floating damage numbers: lifetime in ticks and rise speed in cells/s. */
+  damageNumberTicks: 50,
+  damageNumberRise: 2.2,
+  /** Ticks a hit creature (or the witch) flashes white. */
+  hurtFlashTicks: 6,
+
   // --- Harvesting ---
   /** Max charges of each material in the glyph pouch. */
   pouchCap: 50,
