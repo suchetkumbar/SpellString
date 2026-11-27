@@ -1,6 +1,8 @@
 # Build Spellstring and publish it on GitHub Pages on every push to main.
 # One-time setup: repository Settings -> Pages -> Source: "GitHub Actions".
-# The game is then at https://<user>.github.io/<repo>/
+# The game is then at https://suchetkumbar.github.io/SpellString/
+# This must be the only workflow that deploys Pages: GitHub's Jekyll / static
+# templates publish the unbuilt source (index.html -> /src/main.ts), a blank page.
 name: Deploy to GitHub Pages
 
 on:
@@ -13,9 +15,10 @@ permissions:
   pages: write
   id-token: write
 
+# One deployment at a time; a newer push waits rather than cutting a deployment short.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -32,6 +35,7 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
@@ -44,4 +48,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

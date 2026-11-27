@@ -11,14 +11,19 @@ Three biomes of two levels each, a Glyph Shrine between levels, and the Wyrm
 waiting at the bottom. A run takes about 25 minutes. Death is permanent; the
 Reaction Codex remembers everything you discover.
 
+**Play it in your browser:**
+- itch.io: **https://thebossyall.itch.io/spellstring**
+- GitHub Pages: https://suchetkumbar.github.io/SpellString/
+
+It runs in any desktop browser (Chrome, Firefox or Safari), with a keyboard and
+mouse or a gamepad. Press **H** in the game at any time for the controls.
+
 ## Playing
 
 ```
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # run it locally: http://localhost:5173
 ```
-
-Or open the itch.io build (see below) in any desktop browser (Chrome, Firefox or Safari).
 
 From the title screen:
 - **Enter** to start a run (type a seed first to replay one), or to continue a saved run.
@@ -138,11 +143,14 @@ made along the way.
 The game is a static site: `npm run build` writes it to `dist/` with relative
 paths, so any static host can serve it, from any folder.
 
-**GitHub Pages** (set up in `.github/workflows/deploy.yml`): in the repository's
-Settings → Pages, set Source to "GitHub Actions". Every push to `main` then runs
-the fast checks, builds, and publishes to `https://<user>.github.io/<repo>/`.
+**GitHub Pages**, live at https://suchetkumbar.github.io/SpellString/:
+`.github/workflows/deploy.yml` runs on every push to `main`. It runs the fast
+checks, builds, and publishes `dist/`. The repository's Settings → Pages must have
+Source set to "GitHub Actions". Keep this the only Pages workflow: GitHub's
+suggested Jekyll and "static content" workflows publish the unbuilt source,
+which shows a blank page.
 
-**itch.io:** `npm run zip` writes `spellstring-itch.zip`. Create a project
+**itch.io**, live at https://thebossyall.itch.io/spellstring: `npm run zip` writes `spellstring-itch.zip`. To update the game, upload the new zip to the project and replace the old file. For a new project, create one
 with Kind of project "HTML", upload the zip, tick "This file will be played in
 the browser", and set the viewport to 1280 × 720 (or larger).
 
