@@ -35,7 +35,7 @@ export class Wand {
   recharge = 0;
 
   constructor(
-    readonly stats: WandStats = STARTING_WAND,
+    public stats: WandStats = STARTING_WAND,
     spell: string = TUNING.wandStartSpell,
   ) {
     this.mana = stats.maxMana;

@@ -30,6 +30,8 @@ export class Creature {
   dead = false;
   /** Who or what killed it ('player', a creature key, or a material name). */
   killedBy: string | null = null;
+  /** The witch's spell that last hit it, for kill credit. */
+  lastSpell: string | null = null;
 
   /** Could see the player at the last sense check. */
   sees = false;

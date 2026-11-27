@@ -14,12 +14,25 @@ export const ENTITY_GLYPHS = {
   kinetic: { glyph: '•', color: '#f6f0ff' },
   /** Impact sparks. */
   spark: { glyph: '*', color: '#fff3b0' },
+  /** The exit portal cycles through these. */
+  portalA: { glyph: 'O', color: '#c792ea' },
+  portalB: { glyph: 'O', color: '#82aaff' },
+  portalC: { glyph: '0', color: '#f6f0ff' },
+  /** Glyph chests, closed and opened. */
+  chest: { glyph: '&', color: '#ffd23f' },
+  chestOpen: { glyph: '&', color: '#4a4a52' },
+  /** Fire vents in the floor, burning and doused. */
+  vent: { glyph: '≡', color: '#ff5a1f' },
+  ventOut: { glyph: '≡', color: '#4a4a52' },
 } as const satisfies Record<string, EntityGlyphDef>;
 
 export type EntityGlyphKey = keyof typeof ENTITY_GLYPHS;
 
-/** Glyph used in ASCII maps to mark the player spawn. */
+/** ASCII map markers: the player spawn, the exit portal, a glyph chest, and a fire vent (a run of V in the floor). */
 export const SPAWN_MARKER = '@';
+export const EXIT_MARKER = 'O';
+export const CHEST_MARKER = '&';
+export const VENT_MARKER = 'V';
 
 /** A creature flashes this color when hit. */
 export const CREATURE_HURT_COLOR = '#ffffff';

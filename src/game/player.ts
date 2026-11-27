@@ -23,6 +23,8 @@ export const DAMAGE = {
   burning: source(MAT.fire, 'burning'),
   steam: source(MAT.steam, 'scalding steam'),
   buried: source(MAT.sand, 'buried alive'),
+  ownFire: source(MAT.fire, 'your own fire'),
+  ownSteam: source(MAT.steam, 'your own steam'),
 } as const;
 
 export class Player {
@@ -52,6 +54,11 @@ export class Player {
   hurtThisTick = 0;
   /** Ticks left during which creature attacks are ignored (after one lands). */
   invuln = 0;
+  /** Ticks during which fire / steam around her is her own (a burst of hers landed nearby). */
+  ownFire = 0;
+  ownSteam = 0;
+  /** The current burning came from her own fire. */
+  private burnOwn = false;
 
   /** Ticks since last standing on ground (coyote time). */
   private airTicks = 1_000_000;
@@ -105,7 +112,9 @@ export class Player {
 
   /** Something burning touched her. Water still puts it out next tick. */
   ignite(): void {
-    if (!this.dead) this.burning = TUNING.burnTicks;
+    if (this.dead) return;
+    this.burning = TUNING.burnTicks;
+    this.burnOwn = false;
   }
 
   /** One fixed tick of movement and statuses. */
@@ -115,6 +124,8 @@ export class Player {
     this.prevY = b.y;
     this.hurtThisTick = 0;
     if (this.invuln > 0) this.invuln--;
+    if (this.ownFire > 0) this.ownFire--;
+    if (this.ownSteam > 0) this.ownSteam--;
     if (this.dead) return;
 
     this.buried = refreshBuried(grid, b) > 0;
@@ -189,17 +200,20 @@ export class Player {
 
     // Water puts burning out. Fire sets it (unless we're also in water).
     if (water > 0) this.burning = 0;
-    else if (fire > 0) this.burning = TUNING.burnTicks;
-    if (fire > 0) this.damage(TUNING.fireContactDps * DT, DAMAGE.fire);
+    else if (fire > 0) {
+      this.burning = TUNING.burnTicks;
+      this.burnOwn = this.ownFire > 0;
+    }
+    if (fire > 0) this.damage(TUNING.fireContactDps * DT, this.ownFire > 0 ? DAMAGE.ownFire : DAMAGE.fire);
     if (this.burning > 0) {
       this.burning--;
-      this.damage(TUNING.burnDps * DT, DAMAGE.burning);
+      this.damage(TUNING.burnDps * DT, this.burnOwn ? DAMAGE.ownFire : DAMAGE.burning);
       this.igniteTouched(grid, sim);
     }
 
     if (steam > 0) {
       this.scalded = TUNING.scaldLinger;
-      this.damage(TUNING.scaldDps * DT, DAMAGE.steam);
+      this.damage(TUNING.scaldDps * DT, this.ownSteam > 0 ? DAMAGE.ownSteam : DAMAGE.steam);
     } else if (this.scalded > 0) {
       this.scalded--;
     }

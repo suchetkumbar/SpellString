@@ -5,7 +5,8 @@ import type { CreatureKey } from '../data/creatures';
 import type { Carriers } from './carriers';
 import type { Creature } from './creature';
 import type { Effects } from './effects';
-import type { Pouch } from './harvest';
+import type { Harvester, Pouch } from './harvest';
+import type { RunStats } from './stats';
 import type { Player } from './player';
 import type { Wand } from './wand';
 
@@ -19,10 +20,14 @@ export interface GameContext {
   readonly rng: Rng;
   readonly player: Player;
   readonly pouch: Pouch;
+  readonly harvester: Harvester;
+  readonly stats: RunStats;
   readonly wand: Wand;
   readonly creatures: Creature[];
   readonly carriers: Carriers;
   readonly effects: Effects;
   say(text: string, kind: MessageKind): void;
   spawnCreature(key: CreatureKey, x: number, y: number, generation?: number): Creature;
+  /** The witch's own carrier burst at (x, y): burns nearby count as her own fire or steam. */
+  noteOwnBurst(x: number, y: number, payload: readonly number[]): void;
 }

@@ -53,6 +53,11 @@ export class Canvas2DRenderer implements Renderer {
     if (this.canvas.height !== h) this.canvas.height = h;
   }
 
+  clear(): void {
+    this.ctx.fillStyle = COLORS.outside;
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
   render(frame: RenderFrame): void {
     const { grid, camera, chunks } = frame;
     const ctx = this.ctx;

@@ -199,6 +199,18 @@ export const TUNING = {
   /** Ticks a hit creature (or the witch) flashes white. */
   hurtFlashTicks: 6,
 
+  // --- Levels and the run ---
+  /** Charges per material in a glyph chest (two materials per chest). */
+  chestChargesMin: 12,
+  chestChargesMax: 20,
+  /** Chance per tick that each empty cell of a fire vent's gate catches fire. */
+  ventFireChance: 0.12,
+  /** HP restored at each Glyph Shrine. */
+  shrineHeal: 25,
+  /** After your own fire or steam burst lands within this many cells of you, burns count as your own for a while. */
+  ownBurstRadius: 14,
+  ownBurstTicks: 300,
+
   // --- Harvesting ---
   /** Max charges of each material in the glyph pouch. */
   pouchCap: 50,

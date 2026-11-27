@@ -1,19 +1,22 @@
 import { Rng } from '../core/rng';
-import type { Grid } from '../core/grid';
-import { loadAsciiLevel, type CreatureSpawn } from '../core/level';
+import { loadAsciiLevel, type LevelLayout } from '../core/level';
 import { Simulation } from '../core/sim';
 import type { CreatureKey } from '../data/creatures';
-import { MATERIAL_BY_GLYPH } from '../data/materials';
+import { MAT, MATERIAL_BY_GLYPH, type MaterialKey } from '../data/materials';
+import { REACTIONS } from '../data/reactions';
 import { SPELL_GLYPH_BY_CHAR, STARTING_GLYPHS } from '../data/spellGlyphs';
+import { TUNING } from '../data/tuning';
 import { Carriers } from './carriers';
 import { Caster } from './casting';
 import type { GameContext, MessageKind } from './context';
 import { Creature } from './creature';
 import { updateCreatures } from './creatures';
 import { Effects } from './effects';
+import { Features } from './features';
 import { Harvester, Pouch } from './harvest';
 import type { TickInput } from './input';
 import { Player } from './player';
+import { RunStats } from './stats';
 import { Wand } from './wand';
 
 export type { TickInput } from './input';
@@ -25,43 +28,80 @@ export interface GameMessage {
   readonly tick: number;
 }
 
-const MAX_MESSAGES = 6;
+/** What the witch carries from one level to the next. */
+export interface Kit {
+  readonly hp: number;
+  readonly pouch: Pouch;
+  readonly wand: Wand;
+  readonly known: ReadonlySet<string>;
+  readonly stats: RunStats;
+}
 
-/** One level in play: the world, the witch, her pouch and wand, creatures and spells in flight. */
+export interface GameOptions {
+  /** Carried over from the previous level; a fresh start without it. */
+  readonly kit?: Kit;
+  /** What glyph chests can hold. */
+  readonly chestLoot?: readonly MaterialKey[];
+}
+
+const MAX_MESSAGES = 6;
+const DEFAULT_LOOT: readonly MaterialKey[] = ['water', 'sand', 'fire', 'oil'];
+
+/** One level in play: the world, the witch, her pouch and wand, creatures, spells in flight, and the level's features. */
 export class Game implements GameContext {
   tick = 0;
   readonly rng: Rng;
   readonly player: Player;
   readonly sim: Simulation;
-  readonly pouch = new Pouch();
+  readonly grid: LevelLayout['grid'];
+  readonly spawn: LevelLayout['spawn'];
+  readonly pouch: Pouch;
   readonly harvester = new Harvester();
-  readonly wand = new Wand();
+  readonly wand: Wand;
   readonly caster = new Caster();
   readonly carriers = new Carriers();
   readonly effects = new Effects();
   readonly creatures: Creature[] = [];
+  readonly features: Features;
   /** Delivery and modifier glyphs known (matter glyphs are owned via the pouch). */
-  readonly known = new Set<string>(STARTING_GLYPHS);
+  readonly known: Set<string>;
+  readonly stats: RunStats;
   /** Recent messages for the HUD, newest last. */
   readonly messages: GameMessage[] = [];
   private nextCreatureId = 1;
 
   constructor(
-    readonly grid: Grid,
-    readonly spawn: { readonly x: number; readonly y: number },
+    layout: LevelLayout,
     readonly seed: number,
-    creatures: readonly CreatureSpawn[] = [],
+    opts: GameOptions = {},
   ) {
+    this.grid = layout.grid;
+    this.spawn = layout.spawn;
     this.rng = new Rng(seed);
     // The world gets its own stream so player/creature randomness never perturbs the chemistry.
-    this.sim = new Simulation(grid, this.rng.fork(1).nextU32());
-    this.player = new Player(spawn.x + 0.5, spawn.y + 0.5);
-    for (const c of creatures) this.spawnCreature(c.key, c.x + 0.5, c.y + 0.5);
+    this.sim = new Simulation(layout.grid, this.rng.fork(1).nextU32());
+    this.player = new Player(layout.spawn.x + 0.5, layout.spawn.y + 0.5);
+    const kit = opts.kit;
+    this.pouch = kit?.pouch ?? new Pouch();
+    this.pouch.inFlight.fill(0);
+    this.wand = kit?.wand ?? new Wand();
+    this.wand.queue.length = 0;
+    this.wand.recharge = 0;
+    this.known = new Set(kit?.known ?? STARTING_GLYPHS);
+    this.stats = kit?.stats ?? new RunStats();
+    if (kit) this.player.hp = Math.max(1, Math.min(this.player.maxHp, kit.hp));
+    this.features = new Features(layout.exit, layout.chests, layout.vents, opts.chestLoot ?? DEFAULT_LOOT);
+    for (const c of layout.creatures) this.spawnCreature(c.key, c.x + 0.5, c.y + 0.5);
   }
 
-  static fromAscii(text: string, seed: number): Game {
-    const { grid, spawn, creatures } = loadAsciiLevel(text, seed);
-    return new Game(grid, spawn, seed, creatures);
+  static fromAscii(text: string, seed: number, opts: GameOptions = {}): Game {
+    return new Game(loadAsciiLevel(text, seed), seed, opts);
+  }
+
+  /** What carries over to the next level. */
+  kit(): Kit {
+    this.recordReactions();
+    return { hp: this.player.hp, pouch: this.pouch, wand: this.wand, known: this.known, stats: this.stats };
   }
 
   /**
@@ -87,6 +127,26 @@ export class Game implements GameContext {
     return c;
   }
 
+  noteOwnBurst(x: number, y: number, payload: readonly number[]): void {
+    const p = this.player;
+    if (Math.hypot(p.x - x, p.y - y) > TUNING.ownBurstRadius) return;
+    const fire = payload.includes(MAT.fire);
+    if (fire) p.ownFire = TUNING.ownBurstTicks;
+    if (payload.includes(MAT.steam) || (fire && payload.includes(MAT.water))) p.ownSteam = TUNING.ownBurstTicks;
+  }
+
+  /** Fold this level's reactions into the run's record. */
+  recordReactions(): void {
+    REACTIONS.forEach((r, i) => {
+      if ((this.sim.reactionCounts[i] ?? 0) > 0) this.stats.reactions.add(r.id);
+    });
+  }
+
+  /** The witch reached the exit portal. */
+  get exitReached(): boolean {
+    return this.features.exitReached;
+  }
+
   /** Advance one fixed tick. `simulateWorld: false` freezes the materials (Lab pause) but not the player. */
   step(input: TickInput, simulateWorld = true): void {
     if (simulateWorld) this.sim.step();
@@ -95,6 +155,7 @@ export class Game implements GameContext {
     this.caster.update(this, input);
     this.carriers.update(this);
     updateCreatures(this);
+    this.features.update(this);
     this.effects.update();
     this.tick++;
   }

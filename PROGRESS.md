@@ -1,5 +1,121 @@
 # Spellstring: progress log
 
+## M6: Caves and the descent (done)
+
+### What changed
+- **Level generator** (`src/core/levelgen.ts`, headless, seeded):
+  1. **Cave shape:** two octaves of value noise, thresholded, then 4 passes of cellular-automata smoothing. Each biome sets the scale and openness.
+  2. **A meandering main route** from spawn (left) to exit (right) is carved into the noise *before* smoothing, so it reads as part of the cave. Its waypoints are 20–36 columns apart and at most 10 rows up or down from each other. Its floor drops are bridged with wood only where the dip is deeper than 2 cells (a dip of 1–2 cells you just walk into). Side caverns branch off everywhere.
+  3. **Furnishing from the biome** (`src/data/biomes.ts`):
+     - Pockets of sand, water or oil sealed inside rock, which spill when you dig into them.
+     - Pools flood-filled into floor basins, skipping basins that leak or are too big.
+     - Stable 45° sand piles.
+     - Wooden planks with posts. They never cross the route.
+     - Fire vents.
+  4. **The connectivity guarantee:** `src/core/reach.ts` models where the witch can actually go: walk, step up, fall, jump 4 cells up while drifting 3 sideways, swim, and leap 3 cells out of a pool. If the exit isn't reachable, a walkable tunnel (climbing at most 3 cells per column) is carved from the reachable cell nearest the exit, with a spawn-to-exit tunnel as the last resort. Loose material near the tunnel is sealed so nothing pours in. Thanks to the main route, only about 1 level in 500 needs the tunnel.
+  5. **Glyph chests** are placed on reachable floors well off the main route.
+  6. **Creatures** are bought from a difficulty budget: base + 4 per level of depth. Costs are bat 1, slime 2, toad 3, imp 3, golem 5. Walkers start on floors and fliers in open air, at least 28 cells from the spawn.
+- **Biomes:**
+  - **Sandstone Hollows:** sand and water, pools, sand piles, scaffolds. Bats and slimes.
+  - **Tar Pits:** bigger caverns, oil pockets and lakes, more bridges, and 4 fire vents. Toads, imps and a few bats.
+- **Level features** (`src/game/features.ts`):
+  - **Exit portal `O`:** touch it to finish the level.
+  - **Glyph chest `&`:** walk into it and two materials (12–20 charges each) fly out into your pouch as glyphs.
+  - **Fire vent `≡`:** a floor strip that keeps a 4–6 cell gate of fire burning forever, **until water reaches its mouth**. Then it hisses out for good and the fire turns to steam.
+- **The run** (`src/game/run.ts`, headless):
+  - A descent is 4 levels (Hollows 1-1, 1-2, Tar Pits 2-1, 2-2). The count comes from the biome data, so M7's Frozen Vaults makes it 6.
+  - Level seeds derive from the run seed and depth.
+  - HP, pouch, wand, known glyphs and run stats carry between levels.
+  - Reaching the last exit ends the run ("the descent goes on" until the boss arrives in M10).
+- **The Glyph Shrine** (between levels):
+  - It heals 25 HP and offers 3 gifts. At least one is a new glyph while any are left; the rest are new glyphs or wand upgrades (+1 slot, +30 max MP, regen ×1.4, recharge ×0.65; `src/data/shrine.ts`).
+  - **Runs now start knowing only `>`**; `)` and `+` are shrine gifts.
+  - Gold and buying extras arrive with gold in M7.
+- **Run flow and screens** (`src/ui/screens.ts`):
+  - **Title:** new run with an optional typed seed, daily run (with its date and seed), tutorial, and Lab.
+  - **Esc pauses**, showing the place and seed, with resume, restart and quit to title.
+  - **Death screen:** "killed by", plus the copyable **run postcard**:
+    ```
+    SPELLSTRING  seed 48213  depth 2/4
+    killed by: ^ (your own fire)
+    best spell: +>^   reactions found: 3
+    ```
+  - **R starts a new run immediately** (measured under 3 s in Playwright).
+  - Every option has a key and is also clickable.
+- **Postcard data:**
+  - **Best spell** is the spell with the most kills, or the most-cast spell if there are no kills. Kills are credited to the spell that last hit the creature.
+  - **Reactions found** is the number of distinct reaction ids triggered this run.
+  - **"your own fire / your own steam"** now works: after one of your own fire (or fire + water) bursts lands within 14 cells of you, fire and steam that hurt you in the next 5 s count as yours. This closes the M4 known issue.
+- **Seeds** (`src/core/seeds.ts`): run seeds are 1–999999. The daily seed is a hash of the UTC date. Typed seeds can be numbers or any text.
+- **Tutorial** (`levels/tutorial.txt`, a hand-editable ASCII map):
+  - **Sections:** a step to jump, a pool to "drink", **a fire gate under a low ceiling** (no way over it), a sand pile, **a pit 9 wide and 6 deep** (too wide to jump, far wall too tall to climb, with a ledge so falling in only costs a retry), a chest, a slime, and the exit.
+  - **Hints:** one short line per section (`src/data/tutorial.ts`), hidden once its lesson is done (you have water, the vent is out, and so on).
+- **URL shortcuts:** `?seed=N`, `?daily`, `?tutorial`, `?lab`, and `?level=test` (the developer test room the browser tests use).
+- **Lab** is now a title-screen mode: the test room with every glyph and a full pouch. L only toggles Lab in the Lab and the test room, never in a run.
+- **HUD:** a "Sandstone Hollows 1-2 · seed 48213" line, and the tutorial tip at the top. The bottom hint bar hides behind menus.
+
+### How to try it
+1. Run `npm run dev` and take the title screen's **T: tutorial**.
+2. Then try **Enter** for a random run, a typed seed such as `48213`, or **D** for the daily run.
+3. Reach `O`, pick a shrine gift, and continue.
+4. Die (the death screen shows the postcard; C copies it), then press **R**.
+5. In the Tar Pits, douse a fire vent's mouth with `>~`.
+
+### Tests (183 unit, 7 e2e)
+- **Generator:**
+  - **500 seeds all connect spawn to exit.** Generation averages about 9 ms per level, the worst is about 30 ms, and the fallback tunnel was needed once.
+  - **The same seed gives an identical level** (grid, spawn, exit, creatures, chests and vents), while other seeds and biomes differ.
+  - Biome furnishing (Hollows water and sand, Tar Pits oil and vents).
+  - The creature budget is spent, grows with depth, and keeps away from the spawn.
+  - Chests are reachable.
+  - The reachability model is checked on hand-made maps: walk, a 4-cell ledge jumpable but 5 not, and swimming up and out.
+- **Run:**
+  - Seeded runs are identical.
+  - Hollows 1-1 → 1-2 → Tar Pits 2-1 → 2-2 → won, with a shrine between each pair.
+  - HP, pouch, wand spell and gifts carry over, and the shrine heals 25.
+  - Runs start with only `>`, and the shrines teach `)` and `+`.
+  - Wand upgrades take effect (a 5-glyph spell fits after +1 slot).
+  - **The exact postcard text.**
+  - **Dying in your own fire says "your own fire".**
+  - Best-spell rules.
+  - Daily and typed seeds.
+- **Features:** a chest delivers charges, a vent burns past any fire's lifetime and goes out when water reaches it, and the portal ends the level.
+- **Tutorial:**
+  - **The file loads** with all its pieces.
+  - The pit can't be crossed until it's filled with sand, and then it can.
+  - Falling into the pit is never a trap.
+  - The gate can't be bypassed.
+- **Playwright:**
+  - Title → seeded run → shrine (3 cards; Digit1 picks) → level 1-2 → Esc pause and resume → death with the postcard → **R starts a new run in under 3 s** → back to the title → tutorial (with its tip) → daily run.
+  - All earlier browser tests now run in the `?level=test` room.
+
+### Feel decisions to review
+- **Level size** is 256 × 144 for both biomes. Hollows are tighter (noise scale 18, threshold 0.5); Tar Pits more cavernous (22, 0.48).
+- **Budget:** Hollows 14 + 4/level, Tar Pits 18 + 4/level. That's roughly 8–12 creatures on level 1.
+- **Chests:** 2 per level, holding 12–20 charges of each of two materials from the biome's loot list.
+- **Shrine:** heals 25. Three offers, at least one a glyph while any are left. Wand upgrades are +1 slot (max 9), +30 MP, regen ×1.4, recharge ×0.65.
+- **Fire vent gates:** each empty gate cell catches fire with chance 0.12 per tick. That's dense enough to block, and walking through costs about 30 HP.
+- **Tutorial hints** name controls only ("hold right click on `~` to drink it in"), and each vanishes once its lesson is done.
+
+### Ambiguities resolved (please check)
+- **What "connected" means:** reachable by walking, jumping, falling and swimming, under a model slightly more conservative than the real jump. It is not just "flood-fill through air", because a flood fill would count floors 30 cells overhead.
+- **Starting glyphs:** a run starts with `>` only (the spec's "starting wand: spell `>`"), and the shrines teach `)` and `+`. M7's new glyphs join that pool. Lab and the test room know everything.
+- **Daily seed:** one per UTC day, so everyone shares it.
+- **The tutorial ends** on a "tutorial complete" screen, where R starts a real run.
+- **The end of a descent:** with 4 levels, the last exit shows "THE DESCENT GOES ON". M7 adds levels 5–6 and M10 the boss.
+- **Fire vents** are entities, not a material (a material would have needed a "burns forever" rule in the sim). A vent counts as doused when water touches its mouth.
+
+### Known issues
+- **You can fall off a Tar Pits bridge into a deep cavern** and have to dig out (rock harvests slowly) or build up with sand. The generator guarantees spawn-to-exit, not "back to the route from anywhere". An "every reachable spot can get back" check would cost about one more search per level; worth doing if the playtest finds it annoying.
+- **A fire vent can sit on the main route** with no water nearby. You can walk through it (about 30 HP), or carry water.
+- **Levels share one basic shape** (left to right, one meandering route). M7's third biome is a good moment to vary the route (vertical drops, branches).
+- **Gold**, shrine extras and the Codex arrive in M7 and M8.
+
+### Dependencies
+No new dependencies.
+
+---
+
 ## M5: Creatures made of glyphs (done)
 
 ### What changed

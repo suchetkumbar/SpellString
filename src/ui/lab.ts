@@ -64,15 +64,23 @@ export class Lab {
     this.refresh();
   }
 
-  /** Handle Lab input for this frame. Returns the number of single steps requested (N). */
-  update(input: InputManager, world: LabWorld, cursor: { x: number; y: number } | null): number {
+  /** Turn Lab mode on or off. */
+  setEnabled(on: boolean): void {
+    this.enabled = on;
+    this.panel.hidden = !on;
+    this.paused = false;
+    this.last = null;
+    this.refresh();
+  }
+
+  /**
+   * Handle Lab input for this frame. `canToggle`: L switches Lab mode on and off
+   * (only in the Lab and the test room, never in a real run). Returns the number
+   * of single steps requested (N).
+   */
+  update(input: InputManager, world: LabWorld, cursor: { x: number; y: number } | null, canToggle = true): number {
     const sim = world.sim;
-    if (input.actionPressed('lab')) {
-      this.enabled = !this.enabled;
-      this.panel.hidden = !this.enabled;
-      this.last = null;
-      this.refresh();
-    }
+    if (canToggle && input.actionPressed('lab')) this.setEnabled(!this.enabled);
     if (!this.enabled) return 0;
 
     let steps = 0;

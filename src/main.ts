@@ -1,28 +1,37 @@
 import './style.css';
 import testRoom from '../levels/test-room.txt?raw';
+import tutorial from '../levels/tutorial.txt?raw';
 import { FixedStep } from './core/loop';
-import { Game, type TickInput } from './game/game';
+import { dailySeed, dayKey, parseSeed, SEED_RANGE } from './core/seeds';
+import type { Game, TickInput } from './game/game';
+import { Run, type RunMode } from './game/run';
 import { TUNING } from './data/tuning';
 import { materialDef } from './data/materials';
 import { InputManager } from './input/input';
 import { Camera, type ViewTransform } from './render/camera';
 import { Canvas2DRenderer } from './render/canvas2d';
 import { buildStyleTable } from './render/styles';
+import { sceneView } from './render/sceneView';
 import { DebugOverlay } from './ui/debugOverlay';
 import { Lab } from './ui/lab';
 import { Hud } from './ui/hud';
 import { SpellEditor } from './ui/editor';
-import type { RenderEntity, RenderLabel } from './render/renderer';
-import { creatureView } from './render/creatureView';
+import { Screens, type ScreenKind } from './ui/screens';
 
 declare global {
   interface Window {
-    spellstring?: { readonly game: Game; readonly view: ViewTransform | null; readonly dpr: number };
+    spellstring?: {
+      readonly game: Game | null;
+      readonly run: Run | null;
+      readonly view: ViewTransform | null;
+      readonly dpr: number;
+      readonly screen: ScreenKind | null;
+    };
   }
 }
 
 const FONT_FAMILY = '"JetBrains Mono", ui-monospace, monospace';
-const DEFAULT_SEED = 1;
+const LEVELS = { tutorial, testRoom };
 
 async function loadFonts(): Promise<void> {
   const base = import.meta.env.BASE_URL;
@@ -49,6 +58,11 @@ function el<T extends HTMLElement>(id: string): T {
   return e as T;
 }
 
+/** A fresh random run seed. (The UI may use Math.random; the simulation never does.) */
+function randomSeed(): number {
+  return 1 + Math.floor(Math.random() * SEED_RANGE);
+}
+
 async function boot(): Promise<void> {
   await loadFonts();
 
@@ -60,20 +74,67 @@ async function boot(): Promise<void> {
   const renderer = new Canvas2DRenderer(canvas, styles, FONT_FAMILY);
   const camera = new Camera();
   const loop = new FixedStep(TUNING.simHz, TUNING.maxCatchUpSteps);
-  const hud = new Hud(el('hud'), el('death'));
+  const hud = new Hud(el('hud'), el('tip'));
+  const hudRoot = el('hud');
+  const hintBar = el('hint');
   // Tab pauses the game; on close, drop the time spent in the editor so the sim doesn't catch up.
   const editor = new SpellEditor(el('editor'), () => loop.reset());
-  let seed = DEFAULT_SEED;
-  let game = Game.fromAscii(testRoom, seed);
-  camera.snapTo(game.player.x, game.player.y);
-  /** Instant restart: a fresh copy of the room, next seed. */
-  const restart = (): void => {
+  const today = new Date();
+
+  let run: Run | null = null;
+  let paused = false;
+
+  const startRun = (mode: RunMode, seed: number = randomSeed()): void => {
     editor.close(false);
-    seed++;
-    game = Game.fromAscii(testRoom, seed);
-    camera.snapTo(game.player.x, game.player.y);
+    const label = mode === 'daily' ? `daily ${dayKey(today)}` : '';
+    run = new Run(seed, mode, LEVELS, label);
+    lab.setEnabled(mode === 'lab');
+    paused = false;
+    camera.snapTo(run.game.player.x, run.game.player.y);
     loop.reset();
   };
+  const toTitle = (): void => {
+    editor.close(false);
+    run = null;
+    paused = false;
+    lab.setEnabled(false);
+  };
+  /** The same kind of run again: a new seed for random runs, the same one for daily, tutorial and lab. */
+  const again = (): void => {
+    if (!run) return;
+    startRun(run.mode, run.mode === 'run' ? randomSeed() : run.seed);
+  };
+
+  const screens = new Screens(
+    el('screen'),
+    {
+      newRun: (text) => startRun('run', parseSeed(text) ?? randomSeed()),
+      daily: () => startRun('daily', dailySeed(today)),
+      tutorial: () => startRun('tutorial', 1),
+      lab: () => startRun('lab', 1),
+      resume: () => {
+        paused = false;
+        loop.reset();
+      },
+      again,
+      quit: toTitle,
+      choose: (i) => {
+        if (!run || run.phase !== 'shrine') return;
+        run.choose(i);
+        camera.snapTo(run.game.player.x, run.game.player.y);
+        loop.reset();
+      },
+    },
+    { dailyDate: dayKey(today), dailySeed: dailySeed(today) },
+  );
+
+  // URL shortcuts: ?level=test (developer test room), ?seed=N, ?daily, ?tutorial, ?lab.
+  const params = new URLSearchParams(location.search);
+  if (params.get('level') === 'test') startRun('test', 1);
+  else if (params.has('tutorial')) startRun('tutorial', 1);
+  else if (params.has('lab')) startRun('lab', 1);
+  else if (params.has('daily')) startRun('daily', dailySeed(today));
+  else if (params.has('seed')) startRun('run', parseSeed(params.get('seed') ?? '') ?? randomSeed());
 
   // Keep the backing store exactly device-pixel sized so glyphs stay crisp.
   let deviceW = 0;
@@ -130,7 +191,10 @@ async function boot(): Promise<void> {
   // Read-only debug/test hook (used by Playwright tests and the M10 bot).
   window.spellstring = {
     get game() {
-      return game;
+      return run?.game ?? null;
+    },
+    get run() {
+      return run;
     },
     get view() {
       return renderer.view;
@@ -138,6 +202,51 @@ async function boot(): Promise<void> {
     get dpr() {
       return dpr;
     },
+    get screen() {
+      return screens.current;
+    },
+  };
+
+  /** Which menu (if any) is over the game right now. */
+  const screenFor = (): ScreenKind | null => {
+    if (!run) return 'title';
+    if (run.phase === 'dead') return 'death';
+    if (run.phase === 'won') return 'won';
+    if (run.phase === 'shrine') return 'shrine';
+    return paused ? 'pause' : null;
+  };
+
+  /** Keys for whichever menu is up. */
+  const menuKeys = (): void => {
+    const kind = screens.current;
+    if (kind === 'title') {
+      // (Enter typed into the seed field is handled by the field itself; the game never sees it.)
+      if (input.wasPressed('Enter') || input.wasPressed('NumpadEnter')) startRun('run', parseSeed(screens.seedField?.value ?? '') ?? randomSeed());
+      else if (input.wasPressed('KeyD')) startRun('daily', dailySeed(today));
+      else if (input.wasPressed('KeyT')) startRun('tutorial', 1);
+      else if (input.wasPressed('KeyL')) startRun('lab', 1);
+    } else if (kind === 'pause') {
+      if (input.actionPressed('pause')) {
+        paused = false;
+        loop.reset();
+      } else if (input.wasPressed('KeyR')) again();
+      else if (input.wasPressed('KeyQ')) toTitle();
+    } else if (kind === 'shrine' && run) {
+      for (let i = 0; i < 3; i++) {
+        if (input.wasPressed(`Digit${i + 1}`) || input.wasPressed(`Numpad${i + 1}`)) {
+          run.choose(i);
+          camera.snapTo(run.game.player.x, run.game.player.y);
+          loop.reset();
+          break;
+        }
+      }
+    } else if (kind === 'death' || kind === 'won') {
+      if (input.actionPressed('restart')) {
+        if (run?.mode === 'tutorial' && kind === 'won') startRun('run');
+        else again();
+      } else if (input.wasPressed('KeyC')) screens.copy();
+      else if (input.actionPressed('pause')) toTitle();
+    }
   };
 
   let last = performance.now();
@@ -160,124 +269,99 @@ async function boot(): Promise<void> {
       applySize();
     }
 
+    const shownBefore = screens.current;
+    if (shownBefore) menuKeys();
+    else if (run && !editor.isOpen && input.actionPressed('pause')) paused = true;
+    screens.show(screenFor(), run);
+    hudRoot.hidden = run === null;
+    hintBar.hidden = screens.current !== null;
+
+    const current: Run | null = run;
+    if (!current) {
+      renderer.clear();
+      input.endFrame();
+      requestAnimationFrame(frame);
+      return;
+    }
+    const game = current.game;
+    const playing = current.phase === 'level' && !paused;
+
     // Spell editor: Tab toggles (writing the spell), Esc cancels. The game is paused while it's open.
-    if (input.actionPressed('editor')) {
+    if (playing && input.actionPressed('editor')) {
       if (editor.isOpen) editor.close(true);
       else if (!game.player.dead) editor.open(game);
     } else if (editor.isOpen && input.actionPressed('pause')) {
       editor.close(false);
     }
-    const paused = editor.isOpen;
+    if (!playing && editor.isOpen) editor.close(false);
+    const running = playing && !editor.isOpen;
 
     // Lab edits apply between ticks, using last frame's view for the mouse cell.
-    const labSteps = paused ? 0 : lab.update(input, game, input.mouseCell(renderer.view, dpr));
+    const labAllowed = current.mode === 'lab' || current.mode === 'test';
+    const labSteps = running ? lab.update(input, game, input.mouseCell(renderer.view, dpr), labAllowed) : 0;
 
-    if (game.player.dead && input.actionPressed('restart')) restart();
     if (input.actionPressed('jump')) jumpLatch = true;
-    if (!paused && (input.mousePressed & 1) !== 0) castLatch = true;
+    if (running && (input.mousePressed & 1) !== 0) castLatch = true;
 
     // Fixed-timestep simulation.
-    const steps = paused ? 0 : loop.advance(dt);
+    const steps = running ? loop.advance(dt) : 0;
     const simStart = performance.now();
     const simulateWorld = !(lab.enabled && lab.paused);
-    for (let i = 0; i < steps; i++) {
-      game.step(readTickInput(), simulateWorld);
+    for (let i = 0; i < steps && current.phase === 'level'; i++) {
+      current.step(readTickInput(), simulateWorld);
       jumpLatch = false;
       castLatch = false;
     }
     for (let i = 0; i < labSteps; i++) game.sim.step();
     const simMs = performance.now() - simStart;
 
-    // Interpolate entities between ticks.
-    const a = loop.alpha;
-    const p = game.player;
-    const px = p.prevX + (p.x - p.prevX) * a;
-    const py = p.prevY + (p.y - p.prevY) * a;
+    // The level may have just ended (exit or death): draw the level it ended in.
+    const shown = current.game;
+    const a = running ? loop.alpha : 1;
+    const scene = sceneView(shown, styles, a, now);
+    const p = shown.player;
     const lead = TUNING.cameraLeadSeconds;
-    camera.follow(px + p.body.vx * lead, py + p.body.vy * lead * 0.5, dt / 1000);
+    camera.follow(scene.px + p.body.vx * lead, scene.py + p.body.vy * lead * 0.5, dt / 1000);
 
-    const entities: RenderEntity[] = [];
-    const top = styles.shades - 1;
-    for (const c of game.carriers.list) {
-      const cx = c.prevX + (c.x - c.prevX) * a;
-      const cy = c.prevY + (c.y - c.prevY) * a;
-      let style: number;
-      if (c.kinetic) style = styles.entity.kinetic;
-      else if (c.payload.length === 0) style = styles.materialGhost[c.dud] as number;
-      else {
-        // Multi-glyph payloads cycle through their glyphs as they fly.
-        const m = c.payload[(c.age >> 2) % c.payload.length] as number;
-        style = (styles.materialFirst[m] as number) + top;
-        // A short dim trail.
-        entities.push({ style: styles.materialFirst[m] as number, x: cx - c.vx * 0.025, y: cy - c.vy * 0.025 });
-      }
-      entities.push({ style, x: cx, y: cy });
-    }
-    for (const f of game.effects.fx) {
-      const style = f.kind === 'fizzle' && f.material > 0 ? (styles.materialGhost[f.material] as number) : styles.entity.spark;
-      entities.push({ style, x: f.prevX + (f.x - f.prevX) * a, y: f.prevY + (f.y - f.prevY) * a });
-    }
-    for (const g of game.harvester.particles) {
-      entities.push({
-        style: (styles.materialFirst[g.material] as number) + styles.shades - 1,
-        x: g.prevX + (g.x - g.prevX) * a,
-        y: g.prevY + (g.y - g.prevY) * a,
-      });
-    }
-    const labels: RenderLabel[] = [];
-    creatureView(game, styles, a, entities, labels);
-    const e = styles.entity;
-    // After a creature's blow lands she blinks through her i-frames.
-    const blink = !p.dead && p.invuln > 0 && (now >> 6) % 2 === 0;
-    const look = p.dead || blink
-      ? e.playerDead
-      : p.burning > 0 && (now >> 6) % 2 === 0
-        ? e.playerBurning
-        : p.scalded > 0
-          ? e.playerScalded
-          : p.hurtThisTick > 0
-            ? e.playerHurt
-            : e.player;
-    entities.push({ style: look, x: px, y: py });
-    const h = game.harvester;
-
+    const h = shown.harvester;
     const renderStart = performance.now();
     const cursor = input.mouseCell(renderer.view, dpr);
     renderer.render({
-      grid: game.grid,
+      grid: shown.grid,
       camera,
-      entities,
+      entities: scene.entities,
       harvestRing: h.active ? { x: h.centerX, y: h.centerY, radius: TUNING.harvestRadius, full: h.full } : undefined,
       cursor,
       timeMs: now,
       brushRadius: lab.enabled ? lab.brush : 0,
       chunks: {
-        shift: game.sim.chunkShift,
-        chunksX: game.sim.chunksX,
-        dirty: game.sim.chunkDirty,
-        active: game.sim.chunkActive,
+        shift: shown.sim.chunkShift,
+        chunksX: shown.sim.chunksX,
+        dirty: shown.sim.chunkDirty,
+        active: shown.sim.chunkActive,
       },
       showActiveChunks: debug.visible,
-      labels,
+      labels: scene.labels,
     });
     const renderMs = performance.now() - renderStart;
-    hud.update(game);
+    hud.update(shown, current);
 
     debug.record(now, dt, steps + labSteps, simMs, renderMs);
     if (now - lastDebugDraw >= TUNING.debugRefreshMs) {
       lastDebugDraw = now;
       let cursorText = 'cursor  -';
-      if (cursor && game.grid.inBounds(cursor.x, cursor.y)) {
-        const m = materialDef(game.grid.get(cursor.x, cursor.y));
-        const life = game.grid.life[game.grid.index(cursor.x, cursor.y)] ?? 0;
+      if (cursor && shown.grid.inBounds(cursor.x, cursor.y)) {
+        const m = materialDef(shown.grid.get(cursor.x, cursor.y));
+        const life = shown.grid.life[shown.grid.index(cursor.x, cursor.y)] ?? 0;
         cursorText = `cursor  ${cursor.x},${cursor.y}  ${m ? `${m.name} '${m.glyph}'` : '?'}${life ? `  life ${life}` : ''}`;
       }
       debug.draw([
         cursorText,
         `player  ${p.x.toFixed(2)},${p.y.toFixed(2)}  v ${p.body.vx.toFixed(1)},${p.body.vy.toFixed(1)}${p.body.grounded ? '  grounded' : ''}`,
         `zoom    ${camera.zoom}x  cell ${camera.cellDevicePx(dpr)} dpx  dpr ${dpr}`,
-        `tick    ${game.tick}  seed ${game.seed}  dropped ${loop.droppedSteps}`,
-        `chunks  ${game.sim.activeChunkCount}/${game.sim.chunkActive.length} simulated (outlined), ${renderer.chunksRedrawn} redrawn`,
+        `run     ${current.mode}  seed ${current.seed}  level seed ${shown.seed}  depth ${current.depth}/${current.totalLevels}`,
+        `tick    ${shown.tick}  dropped ${loop.droppedSteps}  creatures ${shown.creatures.length}`,
+        `chunks  ${shown.sim.activeChunkCount}/${shown.sim.chunkActive.length} simulated (outlined), ${renderer.chunksRedrawn} redrawn`,
       ]);
     }
 

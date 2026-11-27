@@ -45,6 +45,8 @@ export interface Carrier {
   /** Creature projectiles: damage on hitting a body, and what the death screen calls it. */
   readonly hitDamage: number;
   readonly source: DamageSource;
+  /** The witch's spell that fired it (for kill credit), or null. */
+  readonly spell: string | null;
 }
 
 export interface LaunchSpec {
@@ -61,6 +63,7 @@ export interface LaunchSpec {
   readonly owner?: Creature | null;
   readonly hitDamage?: number;
   readonly source?: DamageSource;
+  readonly spell?: string | null;
 }
 
 function overlaps(b: Body, x: number, y: number): boolean {
@@ -94,6 +97,7 @@ export class Carriers {
       owner: s.owner ?? null,
       hitDamage: s.hitDamage ?? 0,
       source: s.source ?? SELF_BOLT,
+      spell: s.spell ?? null,
     };
     this.list.push(c);
     return c;
@@ -190,11 +194,15 @@ export class Carriers {
       knock = TUNING.kineticKnockback * 0.5;
     }
     const v = Math.hypot(c.vx, c.vy) || 1;
+    if (c.owner === null && c.spell) cr.lastSpell = c.spell;
     damageCreature(ctx, cr, dmg, 'impact', c.vx / v, c.vy / v, knock, c.owner === null ? 'player' : c.owner.def.key);
   }
 
   private burst(ctx: GameContext, c: Carrier): void {
-    if (c.payload.length > 0) releaseBurst(ctx.grid, ctx.sim, c.x, c.y, c.payload, c.perGlyph, ctx.rng);
+    if (c.payload.length > 0) {
+      releaseBurst(ctx.grid, ctx.sim, c.x, c.y, c.payload, c.perGlyph, ctx.rng);
+      if (c.owner === null) ctx.noteOwnBurst(c.x, c.y, c.payload);
+    }
     if (c.dud) ctx.effects.sparks(c.x, c.y, 2, ctx.rng, 'fizzle', c.dud);
     else ctx.effects.sparks(c.x, c.y, c.payload.length > 0 ? 3 : 2, ctx.rng);
   }

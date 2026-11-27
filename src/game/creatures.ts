@@ -94,6 +94,7 @@ function kill(ctx: GameContext, c: Creature, by: string): void {
   c.dead = true;
   c.hp = 0;
   c.killedBy = by;
+  if (by === 'player' || c.lastSpell) ctx.stats.countKill(c.lastSpell);
   if (c.dot >= 0.5) ctx.effects.number(c.x, c.y - 0.8, c.dot, 'burn');
   const drop = c.def.drop;
   if (drop) {
@@ -115,6 +116,7 @@ function split(ctx: GameContext, c: Creature): void {
     child.targetX = c.targetX;
     child.targetY = c.targetY;
     child.invuln = TUNING.creatureHitIFrames;
+    child.lastSpell = c.lastSpell;
     child.state = c.alert > 0 ? 'chase' : 'idle';
   }
   ctx.effects.sparks(c.x, c.y, 3, ctx.rng);

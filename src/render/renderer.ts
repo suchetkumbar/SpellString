@@ -57,6 +57,8 @@ export interface Renderer {
   /** Resize the backing store, in device pixels. */
   resize(deviceW: number, deviceH: number, dpr: number): void;
   render(frame: RenderFrame): void;
+  /** Blank the canvas (behind full-screen menus). */
+  clear(): void;
   /** Transform used for the last frame (for mouse -> cell mapping). */
   readonly view: ViewTransform | null;
   readonly dpr: number;

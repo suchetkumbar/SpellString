@@ -10,6 +10,11 @@ export { SELF_BOLT } from './carriers';
 
 const DT = 1 / TUNING.simHz;
 
+/** A spell as the postcard shows it: no spaces. */
+export function spellName(text: string): string {
+  return text.replace(/\s+/g, '');
+}
+
 /**
  * Casting: turns clicks into casts (mana, cast delay, recharge) and spends
  * charges per carrier, with fizzles. The carriers themselves fly in Carriers.
@@ -50,6 +55,7 @@ export class Caster {
       return;
     }
     w.mana -= plan.manaCost;
+    ctx.stats.countCast(spellName(w.spell.text));
     if (plan.cutOff) ctx.say(cutOffMessage(plan.cutOff), 'warn');
     w.queue.push(...plan.casts);
     this.fireNext(ctx, input);
@@ -100,6 +106,7 @@ export class Caster {
         payload,
         kinetic: cast.payload.length === 0,
         dud: payload.length === 0 ? dud : 0,
+        spell: spellName(ctx.wand.spell.text),
       });
     }
     for (const m of fizzled) {

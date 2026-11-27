@@ -19,6 +19,9 @@ function id(glyph: string): number {
 /** A game with charges in the pouch and a spell in the wand, the witch settled on the floor. */
 function setup(level: string, spell: string, charges: Record<string, number> = {}, ownedEmpty: string[] = []): Game {
   const g = Game.fromAscii(level, 1);
+  // Runs start knowing only >; these tests use ) and + as if a shrine had taught them.
+  g.known.add(')');
+  g.known.add('+');
   for (const glyph of ownedEmpty) g.pouch.seen[id(glyph)] = 1;
   for (const [glyph, n] of Object.entries(charges)) {
     g.pouch.seen[id(glyph)] = 1;
@@ -67,8 +70,13 @@ describe('the wand', () => {
 
   it('owns digits always, starting glyphs, and matter once harvested', () => {
     const g = Game.fromAscii(ROOM, 1);
-    for (const ch of ['>', ')', '+', '2', '9']) expect(g.owns(ch), ch).toBe(true);
-    for (const ch of ['~', '^', '_', '@', '!', '?', '[', 'k']) expect(g.owns(ch), ch).toBe(false);
+    for (const ch of ['>', '2', '9']) expect(g.owns(ch), ch).toBe(true);
+    // ) and + are learned at Glyph Shrines; M7 glyphs aren't available yet even if known.
+    for (const ch of [')', '+', '~', '^', '_', '@', '!', '?', '[', 'k']) expect(g.owns(ch), ch).toBe(false);
+    g.known.add(')');
+    g.known.add('_');
+    expect(g.owns(')')).toBe(true);
+    expect(g.owns('_')).toBe(false);
     g.pouch.add(MAT.fire, 1);
     g.pouch.spend(MAT.fire);
     expect(g.owns('^')).toBe(true); // still owned with no charges left
@@ -159,6 +167,7 @@ describe('casting', () => {
 
   it('self-damage: a kinetic lob thrown straight up comes down on her', () => {
     const tall = Game.fromAscii(['#####', ...Array<string>(17).fill('#   #'), '# @ #', '#####'].join('\n'), 1);
+    tall.known.add(')');
     expect(tall.wand.write(')', tall.owns).ok).toBe(true);
     run(tall, 20);
     const tp = tall.player;

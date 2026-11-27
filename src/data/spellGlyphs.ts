@@ -36,4 +36,4 @@ export const SPELL_GLYPH_BY_CHAR: ReadonlyMap<string, SpellGlyphDef> = new Map(S
  * glyphs are owned once she has harvested at least one charge of them.
  * Digits are always owned.
  */
-export const STARTING_GLYPHS: readonly string[] = ['>', ')', '+'];
+export const STARTING_GLYPHS: readonly string[] = ['>'];

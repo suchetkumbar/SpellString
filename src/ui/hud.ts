@@ -1,5 +1,8 @@
 import { MATERIALS } from '../data/materials';
 import type { Game } from '../game/game';
+import type { Run } from '../game/run';
+import { MAT } from '../data/materials';
+import { TUTORIAL_HINTS, type TutorialDone } from '../data/tutorial';
 import { appendRich, renderSpellSlots } from './spellView';
 
 const BAR_CELLS = 20;
@@ -25,26 +28,29 @@ export class Hud {
   private readonly pouch: HTMLElement;
   private readonly wand: HTMLElement;
   private readonly msg: HTMLElement;
-  private readonly death: HTMLElement;
+  private readonly place: HTMLElement;
+  private readonly tip: HTMLElement;
   private pouchKey = '';
   private wandKey = '';
   private msgKey = '';
-  private deathKey = '';
+  private tipKey = '';
 
-  constructor(root: HTMLElement, death: HTMLElement) {
+  constructor(root: HTMLElement, tip: HTMLElement) {
     root.textContent = '';
+    this.place = line(root, 'hud-place');
     this.msg = line(root, 'hud-msg');
     this.hp = line(root, 'hud-hp');
     this.mana = line(root, 'hud-mana');
     this.wand = line(root, 'hud-wand');
     this.status = line(root, 'hud-status');
     this.pouch = line(root, 'hud-pouch');
-    this.death = death;
-    death.hidden = true;
+    this.tip = tip;
+    tip.hidden = true;
   }
 
-  update(game: Game): void {
+  update(game: Game, run: Run | null = null): void {
     const p = game.player;
+    setText(this.place, run ? `${run.place} · seed ${run.seed}` : '');
     const w = game.wand;
     setText(this.hp, `HP ${bar(p.hp, p.maxHp)} ${Math.ceil(p.hp).toString().padStart(3)}`);
     setText(this.mana, `MP ${bar(w.mana, w.stats.maxMana)} ${Math.floor(w.mana).toString().padStart(3)}`);
@@ -60,7 +66,7 @@ export class Hud {
     this.updateWand(game);
     this.updatePouch(game);
     this.updateMessages(game);
-    this.updateDeath(game);
+    this.updateTip(game, run);
   }
 
   /** The spell in its slots. Matter with no charges is greyed; a fizzle flashes red. */
@@ -137,23 +143,32 @@ export class Hud {
     }
   }
 
-  private updateDeath(game: Game): void {
-    const p = game.player;
-    const key = p.dead ? `${p.killedBy?.glyph}${p.killedBy?.text}` : '';
-    if (key === this.deathKey) return;
-    this.deathKey = key;
-    this.death.hidden = !p.dead;
-    if (!p.dead) return;
-    this.death.textContent = '';
-    const title = document.createElement('div');
-    title.className = 'death-title';
-    title.textContent = 'YOU DIED';
-    const cause = document.createElement('div');
-    cause.textContent = `killed by: ${p.killedBy?.glyph ?? '?'} (${p.killedBy?.text ?? 'unknown'})`;
-    const again = document.createElement('div');
-    again.className = 'death-again';
-    again.textContent = 'press R to try again';
-    this.death.append(title, cause, again);
+  /** Tutorial: one short hint for the section she's in, until its lesson is done. */
+  private updateTip(game: Game, run: Run | null): void {
+    let text = '';
+    if (run?.mode === 'tutorial' && !game.player.dead) {
+      const x = game.player.x;
+      const done = (d: TutorialDone | undefined): boolean => {
+        switch (d) {
+          case 'hasWater':
+            return game.pouch.count(MAT.water) > 0;
+          case 'hasSand':
+            return game.pouch.count(MAT.sand) > 0;
+          case 'ventOut':
+            return game.features.vents.every((v) => !v.lit);
+          case 'chestOpened':
+            return game.features.chests.every((c) => c.opened);
+          default:
+            return false;
+        }
+      };
+      text = TUTORIAL_HINTS.find((h) => x >= h.x0 && x < h.x1 && !done(h.until))?.text ?? '';
+    }
+    if (text === this.tipKey) return;
+    this.tipKey = text;
+    this.tip.hidden = text === '';
+    this.tip.textContent = '';
+    appendRich(this.tip, text);
   }
 }
 
