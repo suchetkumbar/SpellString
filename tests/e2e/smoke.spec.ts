@@ -276,7 +276,7 @@ test('run flow: title, a generated level, the shrine, death with a postcard, and
   });
   await expect(screen).toContainText('YOU DIED');
   const postcard = await page.locator('.postcard').inputValue();
-  expect(postcard).toContain('SPELLSTRING  seed 48213  depth 2/6');
+  expect(postcard).toContain('SPELLSTRING  seed 48213  depth 2/7');
   expect(postcard).toContain('killed by: ^ (burning)');
   expect(postcard).toContain('reactions found:');
   const t0 = Date.now();
@@ -394,5 +394,46 @@ test('gamepad: A starts a run, the left stick walks, the right trigger casts (st
   await page.waitForTimeout(150);
   await press(7, false);
   expect(await page.evaluate(() => window.spellstring!.game!.wand.mana)).toBeLessThan(mana);
+  expect(errors).toEqual([]);
+});
+
+test("the end of a descent: the Wyrm's lair, its eye, a won run", async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  await page.goto('/?seed=99');
+  await page.waitForFunction(() => window.spellstring?.game?.player.body.grounded === true);
+  // Down through the six levels (straight to each exit), taking the first gift at every shrine.
+  for (let k = 0; k < 6; k++) {
+    await page.evaluate(() => {
+      const g = window.spellstring!.game!;
+      const e = g.features.portal!;
+      g.player.body.x = e.x + 0.5;
+      g.player.body.y = e.y + 0.5;
+    });
+    await page.waitForFunction(() => window.spellstring!.screen === 'shrine');
+    await page.keyboard.press('Digit1');
+    await page.waitForFunction(() => window.spellstring!.screen !== 'shrine' || window.spellstring!.run!.shrinePicks > 0);
+    if ((await page.evaluate(() => window.spellstring!.screen)) === 'shrine') await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.spellstring!.screen === null);
+  }
+  await expect(page.locator('#hud')).toContainText("The Wyrm's Lair");
+  await expect(page.locator('#boss')).toContainText('THE WYRM');
+  // Break every segment with its weakness (as the right spells would), then take the eye.
+  await page.evaluate(() => {
+    const g = window.spellstring!.game!;
+    g.player.hp = 1e9;
+    const w = g.wyrm!;
+    for (const s of [...w.segments]) w.damage(g, s, 1000, true);
+  });
+  await page.waitForFunction(() => window.spellstring!.game!.features.legendary !== null);
+  await expect(page.locator('#boss')).toBeHidden();
+  await page.evaluate(() => {
+    const g = window.spellstring!.game!;
+    const L = g.features.legendary!;
+    g.player.body.x = L.x;
+    g.player.body.y = L.y;
+  });
+  await expect(page.locator('#screen')).toContainText('THE WYRM IS SLAIN');
+  expect(await page.locator('.postcard').inputValue()).toContain('made it out alive');
   expect(errors).toEqual([]);
 });

@@ -14,7 +14,8 @@ import { WAND_UPGRADES } from '../../src/data/shrine';
 
 const tutorial = readFileSync(new URL('../../levels/tutorial.txt', import.meta.url), 'utf8');
 const testRoom = readFileSync(new URL('../../levels/test-room.txt', import.meta.url), 'utf8');
-const LEVELS = { tutorial, testRoom };
+const lair = readFileSync(new URL('../../levels/wyrm-lair.txt', import.meta.url), 'utf8');
+const LEVELS = { tutorial, testRoom, lair };
 
 /** Teleport the witch onto the exit portal and tick once. */
 function reachExit(run: Run): void {
@@ -52,9 +53,9 @@ describe('the run', () => {
     expect(Array.from(a.game.grid.mat)).toEqual(Array.from(b.game.grid.mat));
   });
 
-  it('descends through three biomes, two levels each, with a shrine between levels', () => {
+  it('descends through three biomes, two levels each, with a shrine between levels, down to the Wyrm', () => {
     const run = new Run(5, 'run', LEVELS);
-    expect(run.totalLevels).toBe(BIOMES.length * LEVELS_PER_BIOME);
+    expect(run.totalLevels).toBe(BIOMES.length * LEVELS_PER_BIOME + 1);
     expect(run.place).toBe('Sandstone Hollows 1-1');
     const seen: string[] = [run.place];
     for (let level = 1; level < run.totalLevels; level++) {
@@ -65,9 +66,12 @@ describe('the run', () => {
       expect(run.phase).toBe('level');
       seen.push(run.place);
     }
-    expect(seen).toEqual(['Sandstone Hollows 1-1', 'Sandstone Hollows 1-2', 'Tar Pits 2-1', 'Tar Pits 2-2', 'Frozen Vaults 3-1', 'Frozen Vaults 3-2']);
-    reachExit(run);
-    expect(run.phase).toBe('won');
+    expect(seen).toEqual([
+      'Sandstone Hollows 1-1', 'Sandstone Hollows 1-2', 'Tar Pits 2-1', 'Tar Pits 2-2', 'Frozen Vaults 3-1', 'Frozen Vaults 3-2', "The Wyrm's Lair",
+    ]);
+    // The lair has no exit: only the Wyrm's eye ends it (see wyrm.test.ts).
+    expect(run.game.features.portal).toBeNull();
+    expect(run.game.wyrm).not.toBeNull();
   });
 
   it('carries HP, pouch, wand and glyphs to the next level; the shrine heals and gives a gift', () => {
@@ -130,7 +134,7 @@ describe('the run', () => {
     for (let t = 0; t < 30 && run.phase === 'level'; t++) run.step(NO_INPUT);
     expect(run.phase).toBe('dead');
     expect(run.postcard()).toBe(
-      ['SPELLSTRING  seed 48213  depth 1/6', 'killed by: ^ (burning)', 'best spell: +>^   reactions found: 1'].join('\n'),
+      ['SPELLSTRING  seed 48213  depth 1/7', 'killed by: ^ (burning)', 'best spell: +>^   reactions found: 1'].join('\n'),
     );
   });
 

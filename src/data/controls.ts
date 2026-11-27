@@ -29,6 +29,8 @@ export const CONTROLS = {
   editor: ['Tab'],
   pause: ['Escape', 'PadStart'],
   codex: ['KeyC', 'PadBack'],
+  /** The how-to-play guide, from anywhere. */
+  guide: ['KeyH', 'F1'],
   lab: ['KeyL'],
   labClear: ['KeyC'],
   labPause: ['KeyP'],
@@ -59,11 +61,12 @@ export const REMAPPABLE: readonly (readonly [Action, string])[] = [
   ['zoomIn', 'zoom in'],
   ['zoomOut', 'zoom out'],
   ['restart', 'restart (after death)'],
+  ['guide', 'how to play'],
 ];
 
 /** Keys whose browser default (scrolling, focus change, find bar) we suppress. */
 export const PREVENT_DEFAULT_KEYS: ReadonlySet<string> = new Set([
-  'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'F3',
+  'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'F1', 'F3',
 ]);
 
 /** Lab mode: number keys 1-9 and 0 pick the first ten; [ and ] step through all of them. */

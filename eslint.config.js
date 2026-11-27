@@ -42,7 +42,7 @@ export default defineConfig(
     },
   },
   {
-    files: ['tests/**/*.ts', '*.config.{js,ts}'],
+    files: ['tests/**/*.ts', 'scripts/**/*.ts', '*.config.{js,ts}'],
     languageOptions: { globals: { ...globals.node } },
   },
 );

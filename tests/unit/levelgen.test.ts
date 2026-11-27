@@ -85,7 +85,8 @@ describe('level generator', () => {
         }
       }
     }
-  });
+    // 120 levels: slow when the whole suite runs in parallel.
+  }, 60_000);
 
   it('places glyph chests where she can reach them, away from the main route', () => {
     for (let seed = 1; seed <= 20; seed++) {

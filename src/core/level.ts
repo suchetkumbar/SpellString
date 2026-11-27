@@ -1,7 +1,7 @@
 import { parseAscii } from './ascii';
 import { Grid } from './grid';
 import { MAT, MATERIAL_BY_GLYPH } from '../data/materials';
-import { CHEST_MARKER, EXIT_MARKER, SPAWN_MARKER, VENT_MARKER } from '../data/glyphs';
+import { CHEST_MARKER, EXIT_MARKER, SPAWN_MARKER, VENT_MARKER, WYRM_MARKER } from '../data/glyphs';
 import { CREATURE_BY_GLYPH, type CreatureKey } from '../data/creatures';
 
 export interface CellPos {
@@ -31,6 +31,8 @@ export interface LevelLayout {
   readonly chests: readonly CellPos[];
   readonly creatures: readonly CreatureSpawn[];
   readonly vents: readonly VentSpec[];
+  /** Where the Wyrm starts (the boss lair only). */
+  readonly wyrm?: CellPos | null;
 }
 
 /** Tallest fire gate a vent marker makes. */
@@ -50,6 +52,7 @@ export function loadAsciiLevel(text: string, variantSeed = 0): LevelLayout {
   const chests: CellPos[] = [];
   const creatures: CreatureSpawn[] = [];
   const ventCells: CellPos[] = [];
+  let wyrm: CellPos | null = null;
 
   for (let y = 0; y < map.height; y++) {
     const row = map.rows[y] as string;
@@ -64,6 +67,10 @@ export function loadAsciiLevel(text: string, variantSeed = 0): LevelLayout {
       if (ch === EXIT_MARKER) {
         if (exit) throw new Error(`ASCII map has more than one exit '${EXIT_MARKER}' (${where})`);
         exit = { x, y };
+        continue;
+      }
+      if (ch === WYRM_MARKER) {
+        wyrm = { x, y };
         continue;
       }
       if (ch === CHEST_MARKER) {
@@ -109,5 +116,6 @@ export function loadAsciiLevel(text: string, variantSeed = 0): LevelLayout {
     chests,
     creatures,
     vents: sized,
+    wyrm,
   };
 }

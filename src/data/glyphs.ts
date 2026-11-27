@@ -12,6 +12,13 @@ export const ENTITY_GLYPHS = {
   playerDead: { glyph: '@', color: '#5c5c66' },
   /** A kinetic shot (a delivery with no payload). */
   kinetic: { glyph: '•', color: '#f6f0ff' },
+  /** The Wyrm's head, normally and coiling to lunge. */
+  wyrmHead: { glyph: 'W', color: '#ff4060' },
+  wyrmWindup: { glyph: 'W', color: '#ffffff' },
+  /** A Wyrm segment flashing as it's hurt. */
+  wyrmHurt: { glyph: '#', color: '#ffffff' },
+  /** The legendary glyph the Wyrm drops. */
+  legendary: { glyph: '∞', color: '#ffd23f' },
   /** A mine stuck to a surface, waiting for a creature. */
   mine: { glyph: '_', color: '#f6f0ff' },
   /** Impact sparks. */
@@ -35,6 +42,8 @@ export const SPAWN_MARKER = '@';
 export const EXIT_MARKER = 'O';
 export const CHEST_MARKER = '&';
 export const VENT_MARKER = 'V';
+/** The Wyrm's starting point in the boss lair. */
+export const WYRM_MARKER = 'W';
 
 /** A creature flashes this color when hit. */
 export const CREATURE_HURT_COLOR = '#ffffff';

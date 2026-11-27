@@ -21,6 +21,8 @@ export interface SettingsData {
   readonly highContrast: boolean;
   /** No flicker, blinking or flashes; telegraphs stay steady. */
   readonly reduceFlashing: boolean;
+  /** Open the how-to-play guide whenever the game starts. */
+  readonly guideAtStart: boolean;
   /** Key overrides: action -> key codes. Actions not listed use the defaults. */
   readonly keys: Readonly<Partial<Record<Action, readonly string[]>>>;
 }
@@ -35,6 +37,7 @@ export const DEFAULT_SETTINGS: SettingsData = {
   glow: true,
   highContrast: false,
   reduceFlashing: false,
+  guideAtStart: true,
   keys: {},
 };
 
@@ -66,6 +69,7 @@ export function parseSettings(text: string | null): SettingsData {
       glow: bool(raw.glow, d.glow),
       highContrast: bool(raw.highContrast, d.highContrast),
       reduceFlashing: bool(raw.reduceFlashing, d.reduceFlashing),
+      guideAtStart: bool(raw.guideAtStart, d.guideAtStart),
       keys,
     };
   } catch {

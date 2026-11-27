@@ -3,10 +3,12 @@ import type { Run } from '../game/run';
 import { CODEX_ENTRIES, entryText, type Codex } from '../game/codex';
 import { UNLOCKS, type DiscoveryKind } from '../data/unlocks';
 import { appendRich } from './spellView';
+import { buildGuide } from './guide';
+import { LEGENDARY_GLYPH } from '../data/wyrm';
 import type { Settings, SettingsData } from '../game/settings';
 import { REMAPPABLE, type Action } from '../data/controls';
 
-export type ScreenKind = 'title' | 'pause' | 'shrine' | 'death' | 'won' | 'codex' | 'settings';
+export type ScreenKind = 'title' | 'pause' | 'shrine' | 'death' | 'won' | 'codex' | 'settings' | 'guide';
 
 export interface ScreenActions {
   /** A descent; `seedText` may be blank (random). */
@@ -29,6 +31,13 @@ export interface ScreenActions {
   choose(index: number): void;
   /** Leave the shrine. */
   descend(): void;
+  /** Open / close the how-to-play guide. */
+  guide(): void;
+  closeGuide(): void;
+  /** Continue the saved run (title). */
+  continueRun(): void;
+  /** Save the run and quit to the title (shrine). */
+  saveQuit(): void;
 }
 
 export interface TitleInfo {
@@ -92,7 +101,7 @@ export class Screens {
       minus.addEventListener('click', () => set({ [key]: Math.max(0, Math.round((v - 0.1) * 10) / 10) }));
       plus.addEventListener('click', () => set({ [key]: Math.min(1, Math.round((v + 0.1) * 10) / 10) }));
     };
-    const toggle = (label: string, key: 'shake' | 'hitStop' | 'crt' | 'glow' | 'highContrast' | 'reduceFlashing'): void => {
+    const toggle = (label: string, key: 'shake' | 'hitStop' | 'crt' | 'glow' | 'highContrast' | 'reduceFlashing' | 'guideAtStart'): void => {
       const line = row(label);
       const b = el('button', `screen-button settings-toggle${d[key] ? ' on' : ''}`, line, d[key] ? '[x] on' : '[ ] off');
       b.dataset.setting = key;
@@ -109,6 +118,8 @@ export class Screens {
     toggle('glow on fire and acid', 'glow');
     toggle('high-contrast palette', 'highContrast');
     toggle('reduce flashing', 'reduceFlashing');
+    el('div', 'codex-section', panel, 'Help');
+    toggle('show the guide when the game starts', 'guideAtStart');
     el('div', 'codex-section', panel, 'Keys (click to rebind, then press a key)');
     for (const [action, label] of REMAPPABLE) {
       const line = row(label);
@@ -153,12 +164,14 @@ export class Screens {
     private readonly title: TitleInfo,
     private readonly book: Codex,
     private readonly prefs: Settings,
+    /** The saved run, if any (for the title). */
+    private readonly saved: () => { depth: number; total: number; seed: number } | null,
   ) {
     root.hidden = true;
   }
 
   show(kind: ScreenKind | null, run: Run | null): void {
-    const key = `${kind}|${run?.seed}|${run?.depth}|${run?.phase}|${run?.shrinePicks}|${run?.offers.length}|${run?.gold}|${this.book.startingWand.id}|${this.book.runCount}|${this.revision}`;
+    const key = `${kind}|${run?.seed}|${run?.depth}|${run?.phase}|${run?.shrinePicks}|${run?.offers.length}|${run?.gold}|${this.book.startingWand.id}|${this.book.runCount}|${this.revision}|${this.saved()?.seed ?? 0}`;
     if (key === this.key) return;
     this.key = key;
     this.current = kind;
@@ -181,6 +194,8 @@ export class Screens {
         return this.buildSettings();
       case 'codex':
         return this.buildCodex();
+      case 'guide':
+        return buildGuide(this.root, { prefs: this.prefs, inGame: run !== null, close: () => this.actions.closeGuide(), changed: () => this.invalidate() });
     }
   }
 
@@ -217,6 +232,12 @@ export class Screens {
     const spells = el('div', 'codex-grid', panel);
     if (top.length === 0) el('div', 'codex-entry unknown', spells, 'nothing cast yet');
     for (const s of top) el('div', 'codex-entry', spells, `${s.spell}  ×${s.casts}`);
+    const st = b.stats;
+    el('div', 'codex-section', panel, `Stats  ${st.wins} win${st.wins === 1 ? '' : 's'} in ${b.runCount} run${b.runCount === 1 ? '' : 's'}`);
+    const causes = Object.entries(st.deaths).sort((x, y) => y[1] - x[1]);
+    el('div', 'codex-run', panel, causes.length ? `deaths by cause: ${causes.map(([c, n]) => `${c} ×${n}`).join(' · ')}` : 'no deaths recorded');
+    const depths = st.depths.map((n, d) => (n > 0 ? `${d}: ${n}` : '')).filter(Boolean);
+    if (depths.length) el('div', 'codex-run', panel, `runs ended at depth: ${depths.join(' · ')}`);
     el('div', 'codex-section', panel, 'Recent runs');
     const runs = b.recentRuns().slice(0, 8);
     if (runs.length === 0) el('div', 'codex-run', panel, 'no runs yet');
@@ -253,8 +274,10 @@ export class Screens {
     for (const [ch, color] of LOGO) el('span', '', logo, ch).style.color = color;
     el('div', 'screen-sub', r, "a glyph-witch's descent");
     const menu = el('div', 'screen-menu', r);
+    const saved = this.saved();
+    if (saved) this.button(menu, 'Enter', `continue: level ${saved.depth}/${saved.total} · seed ${saved.seed}`, () => this.actions.continueRun());
     const row = el('div', 'screen-row', menu);
-    this.button(row, 'Enter', 'new run', () => this.actions.newRun(this.seedField?.value ?? ''));
+    this.button(row, saved ? 'N' : 'Enter', saved ? 'new run (abandons the saved one)' : 'new run', () => this.actions.newRun(this.seedField?.value ?? ''));
     const seed = el('input', 'screen-seed', row);
     seed.placeholder = 'seed (optional)';
     seed.spellcheck = false;
@@ -271,9 +294,10 @@ export class Screens {
     this.button(menu, 'L', 'lab: paint materials with every glyph you know', () => this.actions.lab());
     this.button(menu, 'C', `codex · ${this.book.count('reaction')}/${CODEX_ENTRIES.reaction.length} reactions · ${this.book.unlocked().length}/${UNLOCKS.length} unlocks`, () => this.actions.codex());
     const wands = this.book.startingWands();
+    this.button(menu, 'H', 'how to play', () => this.actions.guide());
     this.button(menu, 'S', 'settings', () => this.actions.settings());
     if (wands.length > 1) this.button(menu, 'W', `starting wand: ${this.book.startingWand.name}`, () => this.actions.cycleWand());
-    el('div', 'screen-help', r, 'A/D move · W jump · left click cast · right click harvest · Tab spell editor · Esc pause');
+    el('div', 'screen-help', r, 'A/D move · W jump · left click cast · right click harvest · Tab spell editor · H how to play');
   }
 
   private buildPause(run: Run): void {
@@ -283,6 +307,7 @@ export class Screens {
     const menu = el('div', 'screen-menu', r);
     this.button(menu, 'Esc', 'resume', () => this.actions.resume());
     this.button(menu, 'R', 'restart run', () => this.actions.again());
+    this.button(menu, 'H', 'how to play', () => this.actions.guide());
     this.button(menu, 'C', 'codex', () => this.actions.codex());
     this.button(menu, 'S', 'settings', () => this.actions.settings());
     this.button(menu, 'Q', 'quit to title', () => this.actions.quit());
@@ -312,6 +337,7 @@ export class Screens {
     });
     const menu = el('div', 'screen-menu', r);
     if (run.shrinePicks > 0) this.button(menu, 'Enter', 'descend', () => this.actions.descend());
+    this.button(menu, 'Q', 'save and quit (continue from the title)', () => this.actions.saveQuit());
     el('div', 'screen-help', r, `the first gift is free; more cost ${TUNING.shrineExtraCost} gold each · gold: ${run.gold}`);
   }
 
@@ -319,8 +345,8 @@ export class Screens {
     const r = this.root;
     const won = kind === 'won';
     if (won) {
-      el('div', 'screen-title won', r, run.mode === 'tutorial' ? 'TUTORIAL COMPLETE' : 'THE DESCENT GOES ON');
-      el('div', 'screen-sub', r, run.mode === 'tutorial' ? 'You know enough to go down.' : 'You reached the deepest level built so far.');
+      el('div', 'screen-title won', r, run.mode === 'tutorial' ? 'TUTORIAL COMPLETE' : 'THE WYRM IS SLAIN');
+      el('div', 'screen-sub', r, run.mode === 'tutorial' ? 'You know enough to go down.' : `${LEGENDARY_GLYPH.glyph}  ${LEGENDARY_GLYPH.name} is yours. You made it out alive.`);
     } else {
       el('div', 'screen-title dead', r, 'YOU DIED');
       const p = run.game.player;

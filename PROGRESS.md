@@ -1,5 +1,123 @@
 # Spellstring: progress log
 
+## Post-spec: how-to-play guide and publishing (done)
+
+### What changed
+- **A how-to-play guide** (`src/ui/guide.ts`).
+  - **When it opens:** whenever the game starts, and from anywhere with **H** (or F1): title, play, pause, shrine, death. Opened mid-play, it pauses the game and resumes when closed. Over a run started from a link (`?seed=`), it holds that run still too. Esc, H or Enter closes it.
+  - **The top shows the game's loop** in its own glyphs and colors, in order: harvest (`~~~ ^^`), write (the wand slots `> ~ ^`), cast (`@ · · >`), react (`" " "`). One plain sentence under each says how. The four steps fade in one after another, the guide's only animation, and it's skipped with reduced motion.
+  - **The controls** are grouped as moving, your wands and any time, shown as keycaps styled like the wand slots. **They're read from the player's current bindings**, so a rebound key shows correctly.
+  - **Below:** a glossary of spell glyphs and the gamepad layout.
+  - **Fits on one screen** at 1280 × 720. On narrow windows it stacks and scrolls.
+- **Turning it off:** "show this guide when the game starts" can be switched off in the guide itself or in Settings, under Help. It's saved with the settings.
+- **Where it's advertised:** "[H] how to play" is on the title and pause menus, and in the hint bar.
+- **Publishing:** `.github/workflows/deploy.yml` builds and publishes to GitHub Pages on every push to `main`, after typecheck, lint and unit tests. The README's "Publishing" section covers GitHub Pages, itch.io and Netlify/Vercel/Cloudflare.
+
+### Tests
+- **Unit:**
+  - The setting defaults to on, persists, and malformed values fall back to on.
+  - Key names print as on a keyboard (`KeyA` → `A`, `Escape` → `Esc`).
+  - **H is used by nothing else.**
+- **E2E** (`guide.spec.ts`, as a first-time player with empty storage):
+  - The guide shows at start, with the loop, controls and glyphs.
+  - Esc returns to the title.
+  - **H mid-run opens it and the tick count doesn't move**, and H again resumes.
+  - A rebound key shows in the guide.
+  - Switching off "show at start" is remembered across a reload.
+  - A `?seed=` link opens the guide over a held run.
+- The other browser tests start with the guide off, through a preset setting in `playwright.config.ts`.
+
+### Decisions to check
+- **It opens on every start, not just the first.** That's what was asked for, and the switch is one click away.
+- **The GitHub Pages workflow doesn't run the Playwright tests.** Browsers and the 2-minute bot make CI slow. Run `npm run check` locally before pushing.
+
+
+- **The lair's acid lasted under 2 minutes, even with no Wyrm.** The acid ate its own rock walls: 30 cells fell to 4–11 in 2 minutes. Acid eats every static solid (rock, wood, ice), and gold walls slump because gold is a powder. **The basin is now a gold bowl with 45° banks.** Every gold cell rests on gold below it and diagonally below it, so it holds still, and the acid touches only gold. The acid now stays at 28/28 over 2 minutes on 6 seeds, with or without the Wyrm. A regression test was added to `wyrm.test.ts`.
+- **The bot now covers the whole descent.**
+  - Before, it never left level 1, so shrines, saves and the lair went untested under random play.
+  - After 10 s on a level (`BOT_WARP_MS`), it steps onto the exit.
+  - At its 2nd shrine it saves and quits, then continues from the title.
+  - Result: 7 shrines, 1 save and continue, 1 lair, no errors, slowest 10% of frames at 1.7 ms, sim 0.2 ms.
+
+
+### What changed
+- **The Wyrm** (`src/game/wyrm.ts`, numbers in `src/data/wyrm.ts`): a serpent whose body is the string `===^^^~~~###`.
+  - **The head** steers with a limited turn rate and a serpentine wiggle, alternating between hunting the witch and **diving into the rock** to come back from a new side. It **eats through** rock, sand, wood and ice as it goes, so the arena changes during the fight. The body follows the head's trail.
+  - **Each segment is weak to one reaction:** `=` oil to fire, `^` fire to water, `~` water to ice, `#` rock to acid. Its weakness touching it deals 45 dps and is used up in the reaction. Everything else only chips (×0.25), except **explosions, which hurt every segment they reach**. A destroyed segment bursts into its material.
+  - **The lunge:** within 15 cells it coils for 0.8 s (the head flashes white, with a growing `!`), then lunges at 24 cells/s for 22 damage, then cools down for 2.5 s. Touching its body costs 7, and touching a fire segment sets you alight. Oil segments drip oil.
+  - **Defeat:** when the last segment breaks, it drops **the legendary glyph `∞` (the Wyrm's eye)**. Taking it wins the run.
+  - **Boss bar:** "THE WYRM" plus the body as glyphs, each fading as its segment is hurt.
+- **The lair** (`levels/wyrm-lair.txt`, `W` marks the Wyrm): the 7th level of a descent, after a final shrine, with no exit. Every answer is on hand:
+  - a water pool for the fire segments
+  - a fire vent beside an oil slick for the oil segments
+  - ice pillars for the water segments
+  - acid floating on a gold bed for the rock segments
+  - a gunpowder cache on a rock island
+  - three chests whose loot list is fire, water, ice, acid, gunpowder and oil
+- **The run** is now 7 levels: Hollows ×2, Tar Pits ×2, Vaults ×2, then the lair. The win screen reads "THE WYRM IS SLAIN".
+- **Save-and-quit between levels** (`src/game/runsave.ts`):
+  - At a shrine, **Q** saves the run as "the next level, with this kit": HP after the heal, pouch, all wands with their spells and mana, known glyphs, and run stats. The levels regenerate from the seed, so no map is stored.
+  - On the title, **Enter continues** the saved run and N starts a new one. A save is used once, and a new descent abandons it.
+- **Run statistics for balancing:** the Codex now records **deaths by cause, the depth each run ended at, and wins** (and already recorded spells cast). They're shown in the Codex's Stats section and persist with it.
+- **Balance pass:** see "Balance" below.
+- **README.md:** how to play, controls (keyboard and gamepad), a full **spell cheat sheet**, the chemistry table, the Wyrm's weaknesses, development commands and itch.io upload notes.
+- **itch.io zip:** `npm run zip` builds and writes `spellstring-itch.zip` (6 files, about 103 KiB). It uses `scripts/zip.ts`, a dependency-free zip writer on node:zlib, run by Node directly. The archive was checked with PowerShell's `Expand-Archive`: every file is byte-identical to `dist/`, and asset paths are relative (`./assets/…`), as itch.io needs. The zip is gitignored.
+- **The bot test** (`tests/e2e/bot.spec.ts`): plays a seeded run for 2 minutes with seeded random actions, including restarting on death and taking shrine gifts, and fails on any console error or a frame or sim time over budget. `BOT_SEED` and `BOT_MS` override it.
+  - **Movement:** holding and releasing movement keys, and jumping.
+  - **Spells:** aiming and casting, harvesting, writing random spells from the cheat sheet, and switching wands.
+
+### Balance
+Data from two headless probes (one-off scripts, not kept in the repo; the
+Codex's stats are where real play data now accumulates):
+- **An idle witch** at each level's spawn for 60 s: never killed on any of 120 levels. Creatures start at least 28 cells away and only notice by sight within 12–20 cells, so arriving is always safe.
+- **A "runner"** dashing along the main route at about 10 cells/s without fighting lost only 0–9 HP per level. The telegraphs (0.4–0.8 s) are long compared with how fast a runner passes. **Change: 45% of each level's creatures now spawn within 8 cells of the main route**, so the way through is guarded. The probe flatters a runner (it ignores jumping and terrain), so I didn't raise damage on synthetic evidence alone.
+- **The Wyrm** kills an idle witch in about 26 s on average (8 seeds), so the fight has to be engaged.
+- **Everything else is unchanged pending real play data:** creature HP and damage, chest contents, shrine prices and the gold economy. The Codex Stats section (deaths by cause, depth reached) is the tool for the next pass.
+
+### How to try it
+1. Run `npm run dev` and play a full run, or press F3 and warp in a browser console:
+   ```js
+   const g = spellstring.game, e = g.features.portal; g.player.body.x = e.x + .5; g.player.body.y = e.y + .5
+   ```
+   Repeat once per level to reach the lair.
+2. Bring fire to `=`, water to `^`, ice to `~` and acid to `#`. A gunpowder mine (`_:^`) under it is satisfying.
+3. At a shrine press Q, then continue from the title.
+4. `npm run zip` builds the itch.io package.
+
+### Tests (242 unit, 13 e2e)
+- **The Wyrm** (`wyrm.test.ts`):
+  - The lair loads with every answer.
+  - **Each segment dies to its weakness** and bursts, while the wrong matter does nothing.
+  - Kinetic hits only chip, and an explosion hurts several segments.
+  - It burrows through rock, and its body keeps its spacing.
+  - **The lunge is always preceded by a full windup.**
+- **A full run can be completed:** seven levels, the shrines, every segment broken with its weakness, the eye taken. The result is a "won" phase, a "made it out alive" postcard and a Codex entry. A browser test does the same through the real UI.
+- **Save-and-quit:** the resumed run is on the next level with the identical kit and the **identical level** as a straight descent. Saves are only possible at shrines in descents, and bad saves are ignored.
+- **Lifetime stats:** deaths by cause, depth histogram and wins.
+- **The zip writer:** standard CRC-32, a round trip through a minimal zip reader, and deterministic output.
+- **The bot:** 2 minutes, about 500 actions, no errors, **p90 frame 1.2–1.4 ms, sim 0.2 ms**, with the WebGL pass on.
+
+### Feel decisions to review
+- **Wyrm segment HP 40, weakness 45 dps:** about a second of contact with the right matter per segment. With 12 segments and explosions hurting several at once, the fight should take 1–3 minutes.
+- **Burrowing radius 1.4:** the arena erodes steadily. Ice pillars can be eaten, so collect ice early.
+- **The lair is fixed** (hand-made), not generated: a boss fight benefits from a known layout. Its chests are random.
+- **The save is single-use** (the roguelite norm): quit only between levels, and continuing consumes it.
+
+### Ambiguities resolved (please check)
+- **"Defeating it drops a legendary glyph and wins the run":** the run is won when the eye is *taken*, not when the Wyrm dies, so you get to walk over and claim it. It's recorded as a win in the Codex. It isn't a castable glyph; it's a trophy.
+- **"Balance pass, using local stats":** the game now gathers those stats (deaths by cause, spells cast, depth reached) in the Codex. My pass used headless probes, because there were no human runs to read yet.
+- **The bot** gets charges and every glyph at the start of each level, so "casting at random" exercises every spell path and not just `>`.
+
+### Known issues
+- **The bot test makes `npm run check` take about 2.5 minutes.** `BOT_MS=20000 npx playwright test` gives a quick run.
+- ~~The Wyrm can drain the acid basin~~ Fixed after M10, see below.
+- **No difficulty settings,** and no endless mode after the Wyrm.
+
+### Dependencies
+No new dependencies (the zip writer uses node:zlib).
+
+---
+
 ## M9: Juice and sound (done)
 
 ### What changed

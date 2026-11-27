@@ -23,6 +23,7 @@ import type { TickInput } from './input';
 import { Player } from './player';
 import { RunStats } from './stats';
 import { Wand } from './wand';
+import { Wyrm } from './wyrm';
 
 export type { TickInput } from './input';
 export { NO_INPUT, tickInput } from './input';
@@ -89,6 +90,8 @@ export class Game implements GameContext {
   readonly carriers = new Carriers();
   readonly effects = new Effects();
   readonly creatures: Creature[] = [];
+  /** The boss (in its lair), else null. */
+  readonly wyrm: Wyrm | null;
   readonly features: Features;
   /** Delivery and modifier glyphs known (matter glyphs are owned via the pouch). */
   readonly known: Set<string>;
@@ -132,6 +135,7 @@ export class Game implements GameContext {
     if (kit) this.player.hp = Math.max(1, Math.min(this.player.maxHp, kit.hp));
     this.codex = opts.codex ?? null;
     if (this.codex) this.sim.onReaction = (i) => this.discover('reaction', REACTIONS[i]!.id);
+    this.wyrm = layout.wyrm ? new Wyrm(layout.wyrm.x + 0.5, layout.wyrm.y + 0.5) : null;
     this.features = new Features(layout.exit, layout.chests, layout.vents, opts.chestLoot ?? DEFAULT_LOOT);
     for (const c of layout.creatures) this.spawnCreature(c.key, c.x + 0.5, c.y + 0.5);
   }
@@ -271,6 +275,10 @@ export class Game implements GameContext {
     this.caster.update(this, this.wands, input);
     this.carriers.update(this);
     updateCreatures(this);
+    if (this.wyrm) {
+      this.wyrm.update(this);
+      if (this.wyrm.defeated && !this.features.legendary) this.features.dropLegendary(this, this.wyrm.deathX, this.wyrm.deathY);
+    }
     this.features.update(this);
     applyExplosions(this);
     if (this.tick % DISCOVERY_SCAN_EVERY === 0) {

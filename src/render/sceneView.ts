@@ -70,6 +70,28 @@ export function sceneView(game: Game, styles: StyleTable, a: number, now: number
   }
   creatureView(game, styles, a, entities, labels, reduceFlashing);
 
+  // The Wyrm: big glyphs of its segments' materials, the head on top; it flashes white while coiling to lunge.
+  const w = game.wyrm;
+  if (w && !w.defeated) {
+    for (let i = w.segments.length - 1; i >= 0; i--) {
+      const s = w.segments[i]!;
+      const hurt = s.flash > 0 && !reduceFlashing;
+      entities.push({
+        style: hurt ? (styles.materialGhost[s.material] as number) : (styles.materialFirst[s.material] as number) + top,
+        x: s.prevX + (s.x - s.prevX) * a,
+        y: s.prevY + (s.y - s.prevY) * a,
+        scale: 1.25,
+      });
+    }
+    const hx = w.prevX + (w.x - w.prevX) * a;
+    const hy = w.prevY + (w.y - w.prevY) * a;
+    const coiling = w.state === 'windup';
+    entities.push({ style: coiling && (reduceFlashing || Math.floor(now / 90) % 2 === 0) ? e.wyrmWindup : e.wyrmHead, x: hx, y: hy, scale: 1.4 });
+    if (coiling) labels.push({ text: '!', x: hx, y: hy - 1.6, color: '#ff4d4d', alpha: 0.5 + 0.5 * Math.min(1, w.stateTicks / 48) });
+  }
+  const L = f.legendary;
+  if (L && !f.legendaryTaken) entities.push({ style: e.legendary, x: L.x, y: L.y, scale: 1.3 });
+
   const p = game.player;
   const px = p.prevX + (p.x - p.prevX) * a;
   const py = p.prevY + (p.y - p.prevY) * a;

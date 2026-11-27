@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "vite build && playwright test",
-    "check": "npm run typecheck && npm run lint && npm run test && npm run test:e2e"
+    "check": "npm run typecheck && npm run lint && npm run test && npm run test:e2e",
+    "zip": "vite build && node scripts/zip.ts"
   },
   "license": "UNLICENSED",
   "type": "module",

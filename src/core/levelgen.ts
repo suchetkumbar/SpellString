@@ -31,6 +31,9 @@ const ROOM_CLEARANCE = 9;
 const CREATURE_SPAWN_DISTANCE = 28;
 const CREATURE_SPACING = 6;
 const CHEST_SPACING = 30;
+/** Creatures guarding the main route: this share of picks spawn within ROUTE_GUARD cells of it. */
+const ROUTE_GUARD = 8;
+const ROUTE_GUARD_SHARE = 0.45;
 /** The main route gets a bridge over dips deeper than this (shallower ones you walk down into and hop out of). */
 const BRIDGE_DROP = 2;
 
@@ -326,7 +329,7 @@ export function generateLevel(seed: number, biome: BiomeDef, depth: number, opts
   const path = pathTo(reach, exit.x, exit.y);
 
   const chests = placeChests(grid, rng, reach, path, biome.chests, nearRooms);
-  const creatures = placeCreatures(grid, rng, reach, biome, depth, spawn, exit, chests);
+  const creatures = placeCreatures(grid, rng, reach, biome, depth, spawn, exit, chests, path);
   return { grid, spawn, exit, chests, creatures, vents, path, carved };
 }
 
@@ -438,10 +441,20 @@ function placeCreatures(
   spawn: CellPos,
   exit: CellPos,
   chests: readonly CellPos[],
+  path: readonly number[],
 ): CreatureSpawn[] {
   const W = grid.width;
   const ground: CellPos[] = [];
   const air: CellPos[] = [];
+  // Cells near the main route: part of the budget guards it, so rushing through isn't free.
+  const nearRoute = new Uint8Array(W * grid.height);
+  for (let k = 0; k < path.length; k += 2) {
+    const px = (path[k] as number) % W;
+    const py = Math.floor((path[k] as number) / W);
+    for (let y = Math.max(0, py - ROUTE_GUARD); y <= Math.min(grid.height - 1, py + ROUTE_GUARD); y++) {
+      for (let x = Math.max(0, px - ROUTE_GUARD); x <= Math.min(W - 1, px + ROUTE_GUARD); x++) nearRoute[y * W + x] = 1;
+    }
+  }
   for (let i = 0; i < reach.reached.length; i++) {
     if (!reach.reached[i]) continue;
     const x = i % W;
@@ -454,6 +467,8 @@ function placeCreatures(
     if (Math.hypot(x - spawn.x, fy - spawn.y) >= CREATURE_SPAWN_DISTANCE && isAir(grid, x, fy) && isAir(grid, x, fy - 1) && isAir(grid, x - 1, fy) && isAir(grid, x + 1, fy)) air.push({ x, y: fy });
   }
 
+  const groundNear = ground.filter((c) => nearRoute[c.y * W + c.x]);
+  const airNear = air.filter((c) => nearRoute[c.y * W + c.x]);
   const picks = Object.entries(biome.creatures) as [CreatureKey, number][];
   const total = picks.reduce((s, [, w]) => s + w, 0);
   let budget = biome.budget.base + biome.budget.perDepth * (depth - 1);
@@ -476,7 +491,9 @@ function placeCreatures(
       continue;
     }
     const loco = CREATURE_BY_KEY.get(key)!.locomotion;
-    const list = loco === 'flyer' || loco === 'hover' ? air : ground;
+    const all = loco === 'flyer' || loco === 'hover' ? air : ground;
+    const guards = loco === 'flyer' || loco === 'hover' ? airNear : groundNear;
+    const list = guards.length > 0 && rng.next() < ROUTE_GUARD_SHARE ? guards : all;
     if (list.length === 0) continue;
     const p = list[rng.int(list.length)]!;
     if (taken(p)) continue;

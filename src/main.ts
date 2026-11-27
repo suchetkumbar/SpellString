@@ -1,6 +1,7 @@
 import './style.css';
 import testRoom from '../levels/test-room.txt?raw';
 import tutorial from '../levels/tutorial.txt?raw';
+import lair from '../levels/wyrm-lair.txt?raw';
 import { FixedStep } from './core/loop';
 import { dailySeed, dayKey, parseSeed, SEED_RANGE } from './core/seeds';
 import type { Game, TickInput } from './game/game';
@@ -24,6 +25,8 @@ import { Codex } from './game/codex';
 import { Settings, type SettingsData } from './game/settings';
 import { browserStore } from './ui/storage';
 import { Sound } from './audio/sfx';
+import { clearRunSave, readRunSave, writeRunSave, type RunSave } from './game/runsave';
+import { BIOMES, LEVELS_PER_BIOME } from './data/biomes';
 
 declare global {
   interface Window {
@@ -43,7 +46,7 @@ declare global {
 }
 
 const FONT_FAMILY = '"JetBrains Mono", ui-monospace, monospace';
-const LEVELS = { tutorial, testRoom };
+const LEVELS = { tutorial, testRoom, lair };
 /** Explosion light: how long it lasts (ms), its color, and its size relative to the blast. */
 const LIGHT_MS = 380;
 const LIGHT_RGB = '255, 170, 80';
@@ -96,7 +99,7 @@ async function boot(): Promise<void> {
   const renderer = new Canvas2DRenderer(canvas, styles, FONT_FAMILY);
   const camera = new Camera();
   const loop = new FixedStep(TUNING.simHz, TUNING.maxCatchUpSteps);
-  const hud = new Hud(el('hud'), el('tip'), el('discover'));
+  const hud = new Hud(el('hud'), el('tip'), el('discover'), el('boss'));
   const hudRoot = el('hud');
   const hintBar = el('hint');
   // Tab pauses the game; on close, drop the time spent in the editor so the sim doesn't catch up.
@@ -133,9 +136,59 @@ async function boot(): Promise<void> {
   let paused = false;
   let codexOpen = false;
   let settingsOpen = false;
+  /** The how-to-play guide; `guideResume` = it was opened mid-play, so closing it unpauses. */
+  let guideOpen = settings.data.guideAtStart;
+  let guideResume = false;
+  const openGuide = (): void => {
+    if (guideOpen) return;
+    editor.close(false);
+    guideOpen = true;
+    guideResume = run !== null && run.phase === 'level' && !paused;
+    if (guideResume) paused = true;
+  };
+  const closeGuide = (): void => {
+    guideOpen = false;
+    if (guideResume) {
+      paused = false;
+      loop.reset();
+    }
+    guideResume = false;
+  };
 
+  /** A run saved at a shrine (save-and-quit), if any. */
+  let saved: RunSave | null = readRunSave(store);
+  const begin = (r: Run): void => {
+    editor.close(false);
+    run = r;
+    codexOpen = false;
+    settingsOpen = false;
+    lab.setEnabled(r.mode === 'lab');
+    paused = false;
+    camera.snapTo(r.game.player.x, r.game.player.y);
+    loop.reset();
+  };
+  const continueRun = (): void => {
+    if (!saved) return;
+    const s = saved;
+    // A save is used once: from here the run plays on (and dies) as usual.
+    clearRunSave(store);
+    saved = null;
+    begin(Run.resume(s, LEVELS, codex));
+  };
+  const saveQuit = (): void => {
+    const s = run?.saveAndQuit();
+    if (!s) return;
+    writeRunSave(store, s);
+    saved = s;
+    toTitle();
+  };
   const startRun = (mode: RunMode, seed: number = randomSeed()): void => {
     editor.close(false);
+    // A new descent abandons any saved one.
+    if ((mode === 'run' || mode === 'daily') && saved) {
+      clearRunSave(store);
+      saved = null;
+    }
     const label = mode === 'daily' ? `daily ${dayKey(today)}` : '';
     run = new Run(seed, mode, LEVELS, label, codex);
     codexOpen = false;
@@ -201,10 +254,15 @@ async function boot(): Promise<void> {
       },
       choose,
       descend,
+      continueRun: () => continueRun(),
+      guide: openGuide,
+      closeGuide,
+      saveQuit: () => saveQuit(),
     },
     { dailyDate: dayKey(today), dailySeed: dailySeed(today) },
     codex,
     settings,
+    () => (saved ? { depth: saved.depth, total: BIOMES.length * LEVELS_PER_BIOME + 1, seed: saved.seed } : null),
   );
 
   // URL shortcuts: ?level=test (developer test room), ?seed=N, ?daily, ?tutorial, ?lab.
@@ -214,6 +272,11 @@ async function boot(): Promise<void> {
   else if (params.has('lab')) startRun('lab', 1);
   else if (params.has('daily')) startRun('daily', dailySeed(today));
   else if (params.has('seed')) startRun('run', parseSeed(params.get('seed') ?? '') ?? randomSeed());
+  // The guide opened at start sits over a run started from the URL too: hold it until closed.
+  if (guideOpen && run) {
+    paused = true;
+    guideResume = true;
+  }
 
   // Keep the backing store exactly device-pixel sized so glyphs stay crisp.
   let deviceW = 0;
@@ -306,6 +369,7 @@ async function boot(): Promise<void> {
   /** Which menu (if any) is over the game right now. */
   const screenFor = (): ScreenKind | null => {
     if (settingsOpen) return 'settings';
+    if (guideOpen) return 'guide';
     if (codexOpen) return 'codex';
     if (!run) return 'title';
     if (run.phase === 'dead') return 'death';
@@ -319,9 +383,16 @@ async function boot(): Promise<void> {
     const kind = screens.current;
     if (kind === 'settings') {
       if (!screens.rebinding && input.actionPressed('pause')) settingsOpen = false;
+    } else if (kind === 'guide') {
+      if (input.actionPressed('pause') || input.actionPressed('guide') || input.actionPressed('confirm')) closeGuide();
+    } else if (input.actionPressed('guide')) {
+      openGuide();
     } else if (kind === 'title') {
       // (Enter typed into the seed field is handled by the field itself; the game never sees it.)
-      if (input.actionPressed('confirm')) startRun('run', parseSeed(screens.seedField?.value ?? '') ?? randomSeed());
+      if (input.actionPressed('confirm')) {
+        if (saved) continueRun();
+        else startRun('run', parseSeed(screens.seedField?.value ?? '') ?? randomSeed());
+      } else if (saved && input.wasPressed('KeyN')) startRun('run', parseSeed(screens.seedField?.value ?? '') ?? randomSeed());
       else if (input.wasPressed('KeyD')) startRun('daily', dailySeed(today));
       else if (input.wasPressed('KeyT')) startRun('tutorial', 1);
       else if (input.wasPressed('KeyL')) startRun('lab', 1);
@@ -340,6 +411,7 @@ async function boot(): Promise<void> {
       else if (input.wasPressed('KeyS')) settingsOpen = true;
     } else if (kind === 'shrine' && run) {
       if (run.shrinePicks > 0 && input.actionPressed('confirm')) descend();
+      else if (input.wasPressed('KeyQ')) saveQuit();
       const picks = ['wand1', 'wand2', 'wand3'] as const;
       for (let i = 0; i < 3; i++) {
         if (input.actionPressed(picks[i]!) || input.wasPressed(`Numpad${i + 1}`)) {
@@ -391,6 +463,7 @@ async function boot(): Promise<void> {
     const shownBefore = screens.current;
     if (shownBefore) menuKeys();
     else if (run && !editor.isOpen && input.actionPressed('pause')) paused = true;
+    else if (run && !editor.isOpen && input.actionPressed('guide')) openGuide();
     screens.show(screenFor(), run);
     hudRoot.hidden = run === null;
     hintBar.hidden = screens.current !== null;

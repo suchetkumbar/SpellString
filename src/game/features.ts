@@ -1,6 +1,8 @@
 import type { CellPos, VentSpec } from '../core/level';
 import { MAT, MATERIALS, type MaterialKey } from '../data/materials';
 import { TUNING } from '../data/tuning';
+import { LEGENDARY_GLYPH } from '../data/wyrm';
+import { passableMat } from '../core/reach';
 import type { GameContext } from './context';
 
 /** The exit portal: touch it to finish the level. */
@@ -30,6 +32,9 @@ export class Features {
   readonly vents: Vent[];
   /** The witch touched the portal. */
   exitReached = false;
+  /** The legendary glyph, once the Wyrm drops it, and whether she has taken it. */
+  legendary: { x: number; y: number } | null = null;
+  legendaryTaken = false;
 
   constructor(
     exit: CellPos | null,
@@ -53,6 +58,21 @@ export class Features {
       if (!c.opened && !p.dead && Math.abs(p.x - (c.x + 0.5)) < 0.95 && Math.abs(p.y - (c.y + 0.5)) < 1) this.open(ctx, c);
     }
     for (const v of this.vents) if (v.lit) this.burn(ctx, v);
+    const L = this.legendary;
+    if (L && !this.legendaryTaken && !p.dead && Math.abs(p.x - L.x) < 1 && Math.abs(p.y - L.y) < 1.2) {
+      this.legendaryTaken = true;
+      ctx.emit({ kind: 'portal' });
+      ctx.say(`You take ${LEGENDARY_GLYPH.glyph}, ${LEGENDARY_GLYPH.name}.`, 'info');
+    }
+  }
+
+  /** The Wyrm is dead: its eye drops to the floor below where it fell. */
+  dropLegendary(ctx: GameContext, x: number, y: number): void {
+    const g = ctx.grid;
+    const cx = Math.max(1, Math.min(g.width - 2, Math.floor(x)));
+    let cy = Math.max(1, Math.min(g.height - 2, Math.floor(y)));
+    while (cy < g.height - 2 && passableMat(g.get(cx, cy + 1))) cy++;
+    this.legendary = { x: cx + 0.5, y: cy + 0.5 };
   }
 
   /** Two loot materials, flying out of the chest to the witch as glyphs. */

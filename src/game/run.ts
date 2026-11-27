@@ -4,7 +4,7 @@ import { levelSeed } from '../core/seeds';
 import { BIOMES, LEVELS_PER_BIOME, type BiomeDef } from '../data/biomes';
 import { MATERIALS } from '../data/materials';
 import { MAX_WANDS, MAX_WAND_SLOTS, WAND_TEMPLATES, WAND_UPGRADES, type WandTemplateDef, type WandUpgradeDef } from '../data/shrine';
-import { MAT } from '../data/materials';
+import { MAT, type MaterialKey } from '../data/materials';
 import { SPELL_GLYPHS } from '../data/spellGlyphs';
 import { TUNING } from '../data/tuning';
 import { Game, type Kit } from './game';
@@ -13,6 +13,7 @@ import type { TickInput } from './input';
 import { RunStats } from './stats';
 import { Wand } from './wand';
 import { spellName } from './casting';
+import { kitFromSave, serializeKit, type RunSave } from './runsave';
 import type { Codex } from './codex';
 import type { StartingWandDef } from '../data/unlocks';
 
@@ -35,6 +36,8 @@ export type ShrineOffer =
 export interface RunLevels {
   readonly tutorial?: string;
   readonly testRoom?: string;
+  /** The Wyrm's lair: the last level of a descent. */
+  readonly lair?: string;
 }
 
 /** A whole run: the levels in order, shrines between them, and the postcard at the end. */
@@ -84,7 +87,13 @@ export class Run {
 
   /** Levels in this run: two per biome for a descent, one otherwise. */
   get totalLevels(): number {
-    return this.isDescent ? BIOMES.length * LEVELS_PER_BIOME : 1;
+    // Two levels per biome, then the Wyrm's lair.
+    return this.isDescent ? BIOMES.length * LEVELS_PER_BIOME + 1 : 1;
+  }
+
+  /** The last level of a descent: the Wyrm's lair. */
+  get isBossLevel(): boolean {
+    return this.isDescent && this.depth === this.totalLevels;
   }
 
   get isDescent(): boolean {
@@ -93,12 +102,13 @@ export class Run {
 
   /** The current biome (descents only). */
   get biome(): BiomeDef | null {
-    if (!this.isDescent) return null;
+    if (!this.isDescent || this.isBossLevel) return null;
     return BIOMES[Math.min(BIOMES.length - 1, Math.floor((this.depth - 1) / LEVELS_PER_BIOME))] ?? null;
   }
 
   /** Where we are, for the HUD: "Sandstone Hollows 1-2", "Tutorial", ... */
   get place(): string {
+    if (this.isBossLevel) return "The Wyrm's Lair";
     const b = this.biome;
     if (b) return `${b.name} ${Math.floor((this.depth - 1) / LEVELS_PER_BIOME) + 1}-${((this.depth - 1) % LEVELS_PER_BIOME) + 1}`;
     return this.mode === 'tutorial' ? 'Tutorial' : this.mode === 'lab' ? 'Lab' : 'Test room';
@@ -112,6 +122,11 @@ export class Run {
     if (this.game.player.dead) {
       this.game.recordReactions();
       this.phase = 'dead';
+      this.record();
+    } else if (this.isBossLevel && this.game.features.legendaryTaken) {
+      // The Wyrm is dead and its eye is taken: the run is won.
+      this.game.recordReactions();
+      this.phase = 'won';
       this.record();
     } else if (this.game.exitReached) {
       this.game.recordReactions();
@@ -157,6 +172,24 @@ export class Run {
     this.shrinePicks++;
     this.offers.splice(index, 1);
     if (this.offers.length === 0 || this.gold < TUNING.shrineExtraCost) this.descend();
+  }
+
+  /**
+   * Save and quit at a shrine: the run is written as "the next level, with
+   * this kit" (healed, gifts applied), to pick up later from the title.
+   */
+  saveAndQuit(): RunSave | null {
+    if (this.phase !== 'shrine' || !this.isDescent) return null;
+    const kit = this.game.kit();
+    return serializeKit({ ...kit, hp: Math.min(TUNING.playerMaxHp, kit.hp + TUNING.shrineHeal) }, this, this.depth + 1);
+  }
+
+  /** Continue a saved run: straight into the level it was saved before. */
+  static resume(save: RunSave, levels: RunLevels, codex: Codex | null = null): Run {
+    const run = new Run(save.seed, save.mode, levels, save.label, codex);
+    run.depth = save.depth;
+    run.game = run.makeLevel(kitFromSave(save));
+    return run;
   }
 
   /** Leave the shrine: heal a little and go down to the next level. */
@@ -212,6 +245,9 @@ export class Run {
       case 'test':
         return Game.fromAscii(this.levels.testRoom ?? '', this.seed, { kit: kit ?? sandboxKit(false) });
       default: {
+        if (this.isBossLevel) {
+          return Game.fromAscii(this.levels.lair ?? '', levelSeed(this.seed, this.depth), { kit, chestLoot: LAIR_LOOT, codex: this.codex ?? undefined });
+        }
         const biome = this.biome!;
         const s = levelSeed(this.seed, this.depth);
         // A fresh run starts with the chosen starting wand (daily runs always use the plain one, so they're fair).
@@ -242,6 +278,9 @@ export class Run {
     ].join('\n');
   }
 }
+
+/** What the lair's chests hold: the answers to the Wyrm's segments, and boom. */
+const LAIR_LOOT: readonly MaterialKey[] = ['fire', 'water', 'ice', 'acid', 'gunpowder', 'oil'];
 
 /** Apply a shrine's wand upgrade. */
 export function applyUpgrade(wand: Wand, u: WandUpgradeDef): void {

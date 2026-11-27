@@ -217,6 +217,16 @@ export class Carriers {
         return true;
       }
     }
+    // The Wyrm: a hit on a segment chips it (its weakness is what really hurts); the head just deflects.
+    const w = ctx.wyrm?.bodyAt(c.x, c.y);
+    if (w) {
+      if (w !== 'head') {
+        let dmg = c.kinetic ? TUNING.kineticDamage : TUNING.carrierImpactDamage;
+        for (const m of c.payload) dmg += HEAVY_IMPACT[MATERIALS[m]?.key as MaterialKey] ?? 0;
+        ctx.wyrm!.damage(ctx, w, dmg, false);
+      }
+      return true;
+    }
     return false;
   }
 

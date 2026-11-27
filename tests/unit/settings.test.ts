@@ -6,6 +6,7 @@ import { Juice } from '../../src/render/juice';
 import { Game, NO_INPUT, tickInput } from '../../src/game/game';
 import { MAT } from '../../src/data/materials';
 import { buildStyleTable } from '../../src/render/styles';
+import { keyLabel } from '../../src/ui/guide';
 
 describe('settings', () => {
   it('persist across a reload (mocked storage)', () => {
@@ -135,5 +136,22 @@ describe('game events (for sound and shake)', () => {
     const g = Game.fromAscii('#@~^~^~^~^~^~^~^#', 1);
     for (let t = 0; t < 2000; t++) g.step(tickInput({ cast: t % 2 === 0, aimX: 10, aimY: 0 }));
     expect(g.events.length).toBeLessThanOrEqual(256);
+  });
+});
+
+describe('the how-to-play guide', () => {
+  it('opens at start by default, and remembers being turned off', () => {
+    expect(DEFAULT_SETTINGS.guideAtStart).toBe(true);
+    const store = new MemoryStore();
+    new Settings(store).update({ guideAtStart: false });
+    expect(new Settings(store).data.guideAtStart).toBe(false);
+    expect(parseSettings('{"guideAtStart":"yes"}').guideAtStart).toBe(true);
+  });
+
+  it('names keys the way they are printed on keyboards', () => {
+    expect(['KeyA', 'Digit1', 'ArrowUp', 'Escape', 'Minus', 'Space', 'F1', 'Numpad3'].map(keyLabel)).toEqual(['A', '1', '↑', 'Esc', '−', 'Space', 'F1', 'Num 3']);
+    // H is free for the guide: nothing else in play uses it.
+    const users = Object.entries(CONTROLS).filter(([, codes]) => (codes as readonly string[]).includes('KeyH'));
+    expect(users.map(([a]) => a)).toEqual(['guide']);
   });
 });

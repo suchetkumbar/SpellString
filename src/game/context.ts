@@ -9,6 +9,7 @@ import type { Harvester, Pouch } from './harvest';
 import type { RunStats } from './stats';
 import type { Player } from './player';
 import type { Wand } from './wand';
+import type { Wyrm } from './wyrm';
 import type { PlannedCast } from './spell/plan';
 
 export type MessageKind = 'info' | 'warn' | 'fizzle';
@@ -46,6 +47,8 @@ export interface GameContext {
   readonly creatures: Creature[];
   readonly carriers: Carriers;
   readonly effects: Effects;
+  /** The boss, in its lair (else null). */
+  readonly wyrm: Wyrm | null;
   say(text: string, kind: MessageKind): void;
   /** Report something for the feel layer (sound, shake). */
   emit(e: GameEvent): void;

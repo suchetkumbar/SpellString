@@ -31,6 +31,16 @@ interface CodexSave {
   readonly runs: RunRecord[];
   readonly runCount: number;
   readonly startingWand: string;
+  /** Lifetime stats for the balance pass: deaths by cause, depth reached, wins. */
+  readonly stats: CodexStats;
+}
+
+export interface CodexStats {
+  /** "^ (burning)" -> times it killed you. */
+  readonly deaths: Record<string, number>;
+  /** depthsReached[d] = runs that ended at depth d. */
+  readonly depths: number[];
+  readonly wins: number;
 }
 
 const KINDS: readonly DiscoveryKind[] = ['reaction', 'material', 'creature', 'glyph'];
@@ -82,8 +92,16 @@ export function entryText(kind: DiscoveryKind, id: string): string {
   }
 }
 
+function parseStats(raw: unknown): CodexStats {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<CodexStats>;
+  const deaths: Record<string, number> = {};
+  if (r.deaths && typeof r.deaths === 'object') for (const [k, v] of Object.entries(r.deaths)) if (typeof v === 'number' && v > 0) deaths[k] = v;
+  const depths = Array.isArray(r.depths) ? r.depths.map((n) => (typeof n === 'number' && n > 0 ? n : 0)) : [];
+  return { deaths, depths, wins: typeof r.wins === 'number' ? r.wins : 0 };
+}
+
 function emptySave(): CodexSave {
-  return { v: 1, found: { reaction: [], material: [], creature: [], glyph: [] }, casts: {}, runs: [], runCount: 0, startingWand: 'plain' };
+  return { v: 1, found: { reaction: [], material: [], creature: [], glyph: [] }, casts: {}, runs: [], runCount: 0, startingWand: 'plain', stats: { deaths: {}, depths: [], wins: 0 } };
 }
 
 /** Parse saved JSON defensively: anything malformed falls back to an empty Codex. */
@@ -109,6 +127,7 @@ function parse(text: string | null): CodexSave {
       runs,
       runCount: typeof raw.runCount === 'number' ? raw.runCount : runs.length,
       startingWand: typeof raw.startingWand === 'string' ? raw.startingWand : 'plain',
+      stats: parseStats(raw.stats),
     };
   } catch {
     return emptySave();
@@ -210,7 +229,23 @@ export class Codex {
   recordRun(record: RunRecord, casts: ReadonlyMap<string, number>): void {
     const merged = { ...this.data.casts };
     for (const [s, n] of casts) merged[s] = (merged[s] ?? 0) + n;
-    this.data = { ...this.data, casts: merged, runs: [...this.data.runs, record].slice(-JOURNAL_RUNS), runCount: this.data.runCount + 1 };
+    const st = this.data.stats;
+    const deaths = { ...st.deaths };
+    if (record.ending.startsWith('killed by: ')) {
+      const cause = record.ending.slice('killed by: '.length);
+      deaths[cause] = (deaths[cause] ?? 0) + 1;
+    }
+    const depths = [...st.depths];
+    while (depths.length <= record.depth) depths.push(0);
+    depths[record.depth] = (depths[record.depth] ?? 0) + 1;
+    const wins = st.wins + (record.ending === 'made it out alive' ? 1 : 0);
+    this.data = {
+      ...this.data,
+      casts: merged,
+      runs: [...this.data.runs, record].slice(-JOURNAL_RUNS),
+      runCount: this.data.runCount + 1,
+      stats: { deaths, depths, wins },
+    };
     this.save();
   }
 
@@ -220,6 +255,11 @@ export class Codex {
       .map(([spell, casts]) => ({ spell, casts }))
       .sort((a, b) => b.casts - a.casts || a.spell.localeCompare(b.spell))
       .slice(0, n);
+  }
+
+  /** Lifetime stats: deaths by cause, depth reached, wins. */
+  get stats(): CodexStats {
+    return this.data.stats;
   }
 
   /** Recent run endings, newest first. */

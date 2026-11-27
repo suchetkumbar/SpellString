@@ -180,9 +180,9 @@ describe('three wands', () => {
     let wandsSeen = 0;
     let r = new Run(1, 'run', { testRoom });
     for (let seed = 1; seed <= 12 && wandsSeen === 0; seed++) {
-      r = new Run(seed, 'run', { testRoom });
+      r = new Run(seed, 'run', { testRoom, lair: readFileSync(new URL('../../levels/wyrm-lair.txt', import.meta.url), 'utf8') });
       wandsSeen = 0;
-      for (let level = 1; level < r.totalLevels; level++) {
+      while (!r.isBossLevel) {
         const e = r.game.features.portal!;
         r.game.player.body.x = e.x + 0.5;
         r.game.player.body.y = e.y + 0.5;

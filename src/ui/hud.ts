@@ -34,12 +34,16 @@ export class Hud {
   private readonly tip: HTMLElement;
   private readonly discover: HTMLElement | null;
   private discoverKey = '';
+  private readonly boss: HTMLElement | null;
+  private bossKey = '';
   private pouchKey = '';
   private wandKey = '';
   private msgKey = '';
   private tipKey = '';
 
-  constructor(root: HTMLElement, tip: HTMLElement, discover: HTMLElement | null = null) {
+  constructor(root: HTMLElement, tip: HTMLElement, discover: HTMLElement | null = null, boss: HTMLElement | null = null) {
+    this.boss = boss;
+    if (boss) boss.hidden = true;
     this.discover = discover;
     if (discover) discover.hidden = true;
     root.textContent = '';
@@ -74,6 +78,30 @@ export class Hud {
     this.updateMessages(game);
     this.updateTip(game, run);
     this.updateDiscoveries(game);
+    this.updateBoss(game);
+  }
+
+  /** The Wyrm's bar: its body as glyphs, each fading as that segment is hurt. */
+  private updateBoss(game: Game): void {
+    const el = this.boss;
+    if (!el) return;
+    const w = game.wyrm;
+    const key = w ? (w.defeated ? 'dead' : w.segments.map((s) => `${s.material}:${Math.ceil((s.hp / s.maxHp) * 4)}`).join(',')) : '';
+    if (key === this.bossKey) return;
+    this.bossKey = key;
+    el.hidden = !w || w.defeated;
+    if (!w || w.defeated) return;
+    el.textContent = '';
+    const title = document.createElement('b');
+    title.textContent = 'THE WYRM  ';
+    el.append(title);
+    for (const s of w.segments) {
+      const g = document.createElement('span');
+      g.textContent = MATERIALS[s.material]?.glyph ?? '?';
+      g.style.color = MATERIALS[s.material]?.color ?? '';
+      g.style.opacity = String(0.3 + 0.7 * Math.max(0, s.hp / s.maxHp));
+      el.append(g);
+    }
   }
 
   /** DISCOVERED / UNLOCKED banners: the latest two, for a few seconds. */

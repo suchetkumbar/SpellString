@@ -39,6 +39,7 @@ export function applyExplosions(ctx: GameContext): void {
       const f = 1 - d / reach;
       damageCreature(ctx, c, TUNING.explosionDamage * f, 'impact', dx / (d || 1), dy / (d || 1) - 0.4, TUNING.explosionPush * f, own ? 'player' : 'explosion');
     }
+    ctx.wyrm?.blast(ctx, e.x, e.y, e.r);
     for (const m of ctx.carriers.list) {
       if (m.stuck && Math.hypot(m.x - e.x, m.y - e.y) < reach) m.detonate = true;
     }
