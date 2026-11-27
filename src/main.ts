@@ -17,6 +17,8 @@ import { Lab } from './ui/lab';
 import { Hud } from './ui/hud';
 import { SpellEditor } from './ui/editor';
 import { Screens, type ScreenKind } from './ui/screens';
+import { Codex } from './game/codex';
+import { browserStore } from './ui/storage';
 
 declare global {
   interface Window {
@@ -74,7 +76,10 @@ async function boot(): Promise<void> {
   const renderer = new Canvas2DRenderer(canvas, styles, FONT_FAMILY);
   const camera = new Camera();
   const loop = new FixedStep(TUNING.simHz, TUNING.maxCatchUpSteps);
-  const hud = new Hud(el('hud'), el('tip'));
+  const hud = new Hud(el('hud'), el('tip'), el('discover'));
+  // The Reaction Codex persists in localStorage between runs (and reloads).
+  const codex = new Codex(browserStore());
+  let codexOpen = false;
   const hudRoot = el('hud');
   const hintBar = el('hint');
   // Tab pauses the game; on close, drop the time spent in the editor so the sim doesn't catch up.
@@ -87,7 +92,8 @@ async function boot(): Promise<void> {
   const startRun = (mode: RunMode, seed: number = randomSeed()): void => {
     editor.close(false);
     const label = mode === 'daily' ? `daily ${dayKey(today)}` : '';
-    run = new Run(seed, mode, LEVELS, label);
+    run = new Run(seed, mode, LEVELS, label, codex);
+    codexOpen = false;
     lab.setEnabled(mode === 'lab');
     paused = false;
     camera.snapTo(run.game.player.x, run.game.player.y);
@@ -95,6 +101,7 @@ async function boot(): Promise<void> {
   };
   const toTitle = (): void => {
     editor.close(false);
+    codexOpen = false;
     run = null;
     paused = false;
     lab.setEnabled(false);
@@ -118,6 +125,15 @@ async function boot(): Promise<void> {
       },
       again,
       quit: toTitle,
+      codex: () => {
+        codexOpen = true;
+      },
+      closeCodex: () => {
+        codexOpen = false;
+      },
+      cycleWand: () => {
+        codex.cycleStartingWand();
+      },
       choose: (i) => {
         if (!run || run.phase !== 'shrine') return;
         run.choose(i);
@@ -132,6 +148,7 @@ async function boot(): Promise<void> {
       },
     },
     { dailyDate: dayKey(today), dailySeed: dailySeed(today) },
+    codex,
   );
 
   // URL shortcuts: ?level=test (developer test room), ?seed=N, ?daily, ?tutorial, ?lab.
@@ -217,6 +234,7 @@ async function boot(): Promise<void> {
 
   /** Which menu (if any) is over the game right now. */
   const screenFor = (): ScreenKind | null => {
+    if (codexOpen) return 'codex';
     if (!run) return 'title';
     if (run.phase === 'dead') return 'death';
     if (run.phase === 'won') return 'won';
@@ -233,12 +251,17 @@ async function boot(): Promise<void> {
       else if (input.wasPressed('KeyD')) startRun('daily', dailySeed(today));
       else if (input.wasPressed('KeyT')) startRun('tutorial', 1);
       else if (input.wasPressed('KeyL')) startRun('lab', 1);
+      else if (input.wasPressed('KeyC')) codexOpen = true;
+      else if (input.wasPressed('KeyW')) codex.cycleStartingWand();
+    } else if (kind === 'codex') {
+      if (input.actionPressed('pause') || input.wasPressed('KeyC')) codexOpen = false;
     } else if (kind === 'pause') {
       if (input.actionPressed('pause')) {
         paused = false;
         loop.reset();
       } else if (input.wasPressed('KeyR')) again();
       else if (input.wasPressed('KeyQ')) toTitle();
+      else if (input.wasPressed('KeyC')) codexOpen = true;
     } else if (kind === 'shrine' && run) {
       if (run.shrinePicks > 0 && (input.wasPressed('Enter') || input.wasPressed('NumpadEnter'))) {
         run.descend();

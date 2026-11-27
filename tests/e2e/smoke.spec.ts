@@ -302,3 +302,27 @@ test('run flow: title, a generated level, the shrine, death with a postcard, and
   expect(await page.evaluate(() => window.spellstring!.run!.label)).toMatch(/^daily \d{4}-\d{2}-\d{2}$/);
   expect(errors).toEqual([]);
 });
+
+test('the Codex: discoveries show a banner and survive a page reload', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  // The tutorial starts next to rock, water and a fire gate: discoveries come at once.
+  await page.goto('/?tutorial');
+  await expect(page.locator('#discover')).toContainText('DISCOVERED');
+  await page.waitForFunction(() => (window.spellstring?.game?.codex?.count('material') ?? 0) >= 3);
+  const found = await page.evaluate(() => window.spellstring!.game!.codex!.count('material'));
+
+  await page.goto('/'); // a fresh page load: only localStorage carries over
+  const screen = page.locator('#screen');
+  await expect(screen).toContainText('codex');
+  await page.keyboard.press('KeyC');
+  await expect(screen).toContainText('REACTION CODEX');
+  await expect(screen).toContainText(`Materials  ${found}/12`);
+  await expect(screen).toContainText('#  rock');
+  await page.keyboard.press('Escape');
+  await expect(screen).toContainText('new run');
+  expect(errors).toEqual([]);
+});

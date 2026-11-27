@@ -12,6 +12,9 @@ import { Pouch } from './harvest';
 import type { TickInput } from './input';
 import { RunStats } from './stats';
 import { Wand } from './wand';
+import { spellName } from './casting';
+import type { Codex } from './codex';
+import type { StartingWandDef } from '../data/unlocks';
 
 /**
  * run: the descent (random seed). daily: the descent on today's shared seed.
@@ -53,9 +56,30 @@ export class Run {
     private readonly levels: RunLevels = {},
     /** Shown on the postcard for daily runs. */
     readonly label = '',
+    /** Discoveries, unlocks and the spell journal. Optional: without it nothing persists and everything is open. */
+    readonly codex: Codex | null = null,
   ) {
     this.rng = new Rng(seed ^ 0x5eed);
     this.game = this.makeLevel(undefined);
+  }
+
+  /** Write a finished run into the Codex's journal (descents only). */
+  private record(): void {
+    if (!this.codex || !this.isDescent) return;
+    const p = this.game.player;
+    this.codex.recordRun(
+      {
+        seed: this.seed,
+        mode: this.mode,
+        depth: this.depth,
+        totalLevels: this.totalLevels,
+        ending: this.phase === 'won' ? 'made it out alive' : p.killedBy ? `killed by: ${p.killedBy.glyph} (${p.killedBy.text})` : 'gave up',
+        spell: spellName(this.game.wand.spell.text),
+        best: this.game.stats.bestSpell(),
+        date: this.label || undefined,
+      },
+      this.game.stats.casts,
+    );
   }
 
   /** Levels in this run: two per biome for a descent, one otherwise. */
@@ -88,10 +112,12 @@ export class Run {
     if (this.game.player.dead) {
       this.game.recordReactions();
       this.phase = 'dead';
+      this.record();
     } else if (this.game.exitReached) {
       this.game.recordReactions();
       if (this.depth >= this.totalLevels) {
         this.phase = 'won';
+        this.record();
       } else {
         this.phase = 'shrine';
         this.offers = this.rollOffers();
@@ -147,8 +173,10 @@ export class Run {
   /** Three offers: new glyphs the witch doesn't know yet, then wand upgrades. */
   private rollOffers(): ShrineOffer[] {
     const known = this.game.known;
+    // With a Codex, the advanced glyphs only appear once unlocked.
+    const allowed = this.codex?.shrineGlyphs();
     const glyphs: ShrineOffer[] = SPELL_GLYPHS.filter(
-      (g) => g.available && g.kind !== 'digit' && g.kind !== 'close' && !known.has(g.glyph),
+      (g) => g.available && g.kind !== 'digit' && g.kind !== 'close' && !known.has(g.glyph) && (!allowed || allowed.has(g.glyph)),
     ).map((g) => ({ kind: 'glyph', glyph: g.glyph, title: `${g.glyph}  ${g.name}`, text: g.help }));
     const wand = this.game.wand;
     const upgrades: ShrineOffer[] = WAND_UPGRADES.filter((u) => !(u.slots && wand.stats.slots >= MAX_WAND_SLOTS)).map((u) => ({
@@ -178,14 +206,17 @@ export class Run {
   private makeLevel(kit: Kit | undefined): Game {
     switch (this.mode) {
       case 'tutorial':
-        return Game.fromAscii(this.levels.tutorial ?? '', this.seed, { kit });
+        return Game.fromAscii(this.levels.tutorial ?? '', this.seed, { kit, codex: this.codex ?? undefined });
       case 'lab':
+        return Game.fromAscii(this.levels.testRoom ?? '', this.seed, { kit: kit ?? labKit(this.codex), codex: this.codex ?? undefined });
       case 'test':
-        return Game.fromAscii(this.levels.testRoom ?? '', this.seed, { kit: kit ?? sandboxKit(this.mode === 'lab') });
+        return Game.fromAscii(this.levels.testRoom ?? '', this.seed, { kit: kit ?? sandboxKit(false) });
       default: {
         const biome = this.biome!;
         const s = levelSeed(this.seed, this.depth);
-        return new Game(generateLevel(s, biome, this.depth), s, { kit, chestLoot: biome.chestLoot });
+        // A fresh run starts with the chosen starting wand (daily runs always use the plain one, so they're fair).
+        const start = kit ?? (this.mode === 'run' && this.codex ? startingKit(this.codex.startingWand) : undefined);
+        return new Game(generateLevel(s, biome, this.depth), s, { kit: start, chestLoot: biome.chestLoot, codex: this.codex ?? undefined });
       }
     }
   }
@@ -233,4 +264,30 @@ function sandboxKit(fullPouch: boolean): Kit {
   const wands = fullPouch ? WAND_TEMPLATES.map((t) => new Wand({ ...t.stats })) : [new Wand()];
   if (fullPouch) wands[0] = new Wand();
   return { hp: TUNING.playerMaxHp, pouch, wands, activeWand: 0, known, stats: new RunStats() };
+}
+
+/** A fresh run's kit with a chosen starting wand: its glyphs known and its spell written. Same stats for every wand. */
+export function startingKit(w: StartingWandDef): Kit {
+  return {
+    hp: TUNING.playerMaxHp,
+    pouch: new Pouch(),
+    wands: [new Wand(undefined, w.spell)],
+    activeWand: 0,
+    known: new Set(w.glyphs),
+    stats: new RunStats(),
+  };
+}
+
+/**
+ * Lab: a wand with every glyph you've discovered, a full pouch of the
+ * materials you've discovered, and three wands. Without a Codex, everything.
+ */
+function labKit(codex: Codex | null): Kit {
+  if (!codex) return sandboxKit(true);
+  const kit = sandboxKit(true);
+  const pouch = new Pouch();
+  for (const m of MATERIALS) if (m.id !== 0 && codex.has('material', m.key)) pouch.add(m.id, pouch.cap);
+  const known = new Set(['>', ...codex.found('glyph').filter((g) => !MATERIALS.some((m) => m.glyph === g))]);
+  if (known.has('[')) known.add(']');
+  return { ...kit, pouch, known };
 }

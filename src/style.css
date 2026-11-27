@@ -106,3 +106,17 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); 
 .hud-wand-row:not(.active) { opacity: 0.5; }
 .shrine-card.cant { opacity: 0.4; cursor: default; }
 .shrine-card.newWand .shrine-name { color: #9be22d; font-size: 16px; font-weight: 700; }
+.discover { top: 22%; right: 24px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.discover[hidden] { display: none; }
+.discover-row { background: rgba(5, 5, 7, 0.85); border: 1px solid #c792ea; padding: 6px 12px; font-size: 15px; color: #f6f0ff; }
+.discover-row b { color: #c792ea; letter-spacing: 0.15em; margin-right: 12px; font-size: 12px; }
+.discover-row.unlocked { border-color: #9be22d; }
+.discover-row.unlocked b { color: #9be22d; }
+.codex-panel { max-height: 78vh; overflow-y: auto; width: min(920px, 92vw); padding: 4px 12px; text-align: left; }
+.codex-section { margin: 10px 0 4px; color: #c792ea; font-weight: 700; letter-spacing: 0.1em; }
+.codex-grid { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.codex-entry { min-width: 170px; }
+.codex-entry.unknown { opacity: 0.35; }
+.codex-unlock.open { color: #9be22d; }
+.codex-unlock.closed { opacity: 0.6; }
+.codex-run { opacity: 0.85; font-size: 12px; }

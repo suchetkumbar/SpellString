@@ -1,5 +1,81 @@
 # Spellstring: progress log
 
+## M8: The Reaction Codex (done)
+
+### What changed
+- **Persistence:** `KeyValueStore` (`src/core/storage.ts`) is a three-method interface with an in-memory version for tests. `browserStore()` (`src/ui/storage.ts`) wraps `localStorage`, never throws, and falls back to memory if storage is blocked. The Codex is saved under `spellstring.codex.v1` on every change (it's small, and changes are rare). Corrupt, foreign or older data starts a fresh Codex, and unknown ids are dropped.
+- **The Codex** (`src/game/codex.ts`, headless):
+  - **What it records:** discoveries in four kinds (12 reactions, 12 materials, 5 creatures, 8 spell glyphs), the spell journal (total casts per spell, and the last 20 run endings with the spell in hand), the run count, and the chosen starting wand.
+  - **Formulas** show only what a reaction *makes*: `^ + = -> ^` (oil catches fire), `^ + ~ -> "`, `" -> ~`, `% + # -> ·` (acid eats rock), `^ + : -> *boom*`.
+- **Discovery tracking** (in `Game`, when it has a Codex):
+  - **Reactions:** the first time each happens, via the sim's existing first-reaction hook.
+  - **Materials:** on screen near the witch (48 × 28 cells), or once harvested.
+  - **Creatures:** within 20 cells.
+  - **Glyphs:** once owned.
+
+  Each new one raises a **DISCOVERED** banner with its formula or name (top right, about 3 s), and an **UNLOCKED** banner when it earns an unlock.
+- **Light meta-progression** (`src/data/unlocks.ts`), options only, never stats:
+  - **Shrine glyphs:** `)`, `+`, `@` and `_` are always offered.
+    - **`!` trigger** unlocks after 6 reactions.
+    - **`?` chaos** unlocks after 10 materials.
+    - **`[ ]n` loop** unlocks after 10 reactions.
+  - **Starting wands**, chosen on the title with **W**:
+    - **Lobber's** starts knowing `)`; unlocked by meeting 3 kinds of creature.
+    - **Splitter's** starts knowing `+`; unlocked by 5 reactions.
+    - **Sapper's** starts knowing `_`; unlocked by seeing gunpowder explode.
+
+    They all have identical stats and an empty pouch (a test checks this). **Daily runs always use the plain wand**, so they stay fair.
+- **Spell journal:** at the end of each run (death or win), its casts and ending are recorded. The Codex screen shows the 8 most-cast spells and the 8 latest runs (seed, depth, ending, the spell in hand, the best spell).
+- **The Codex screen:** **C** on the title or in the pause menu; Esc goes back.
+  - **Counts and entries:** each section shows how many you've found ("Reactions 7/12") and lists every entry, with `???` for the ones you haven't.
+  - **Unlocks** show ✓ when earned, or ○ with how to earn them.
+  - **The journal** sits at the bottom.
+
+  The title shows codex progress ("4/12 reactions · 1/6 unlocks") and the starting wand.
+- **Lab mode** now hands you **a wand with every glyph you've discovered**, a full pouch of the materials you've discovered, and three wands. The developer test room (`?level=test`) still has everything.
+
+### How to try it
+1. Play the tutorial (**T**). DISCOVERED banners appear as you meet water, rock, steam and the gate's reactions.
+2. Back on the title, press **C** for the Codex. Reload the page: it's still there.
+3. Meet bats, slimes and a toad across runs to unlock Lobber's wand, then pick it with **W**.
+
+### Tests (221 unit, 8 e2e)
+- **Persistence (mocked storage):**
+  - Discoveries, the journal and the starting-wand choice survive a "reload" (a new Codex on the same store).
+  - Missing, corrupt and foreign data, and unknown ids, all start clean.
+  - The journal keeps the latest 20 runs and sums casts.
+- **Formulas:** every reaction's text checked, plus material, creature and glyph names.
+- **Unlock rules:**
+  - **Every unlock opens exactly when its requirement is met** (one short is still locked), and `discover()` reports it as newly earned.
+  - Shrine glyph gating.
+  - Starting wands (plain always; others when unlocked; the choice persists).
+  - **Unlocks never change stats.**
+- **In play:** seeing a bat, water and fire meeting yields discoveries and banners. A Codex-backed run never offers `! ? [` before they're unlocked, records its ending in the journal on death, honours the starting wand (and dailies ignore it), and Lab gets only discovered glyphs and materials.
+- **Playwright:** the tutorial raises a DISCOVERED banner. After a fresh page load the title's Codex shows the same material count and lists `#  rock`.
+
+### Feel decisions to review
+- **Thresholds:** 6 / 10 reactions, 10 materials, 3 creatures, 5 reactions for Splitter's.
+  - **Run 1:** the tutorial alone gives about 4 reactions (the fire gate's fire, steam and smoke).
+  - **Runs 1–2:** Hollows plus Tar Pits bring oil and wood fires and the first three creatures. Splitter's and Lobber's should land here.
+  - **Later:** `!` needs Tar Pits, and `[ ]` needs Vaults chemistry.
+- **"Seeing" a material** means it's within roughly the visible area around the witch (48 × 28 cells), checked 4 times a second.
+- **Banners:** at most two at a time, each up for about 3.3 s.
+
+### Ambiguities resolved (please check)
+- **Discovering a glyph** means owning it: learning it at a shrine, or harvesting a matter glyph. Simply seeing one on a creature doesn't count.
+- **The journal's "spell equipped when each run ended"** is the spell in the wand in hand at death or victory.
+- **Lab, first time:** with an empty Codex, Lab gives just `>`. Lab grows as you play, as the spec says.
+- **Unlocked starting wands** apply to normal runs, not daily runs or the tutorial.
+
+### Known issues
+- There's no "reset Codex" button yet. Clear site data, or `localStorage.removeItem('spellstring.codex.v1')`, to start over.
+- Discoveries in the developer test room (`?level=test`) aren't recorded on purpose. Discoveries in Lab are.
+
+### Dependencies
+No new dependencies.
+
+---
+
 ## M7: Spells v2 and new chemistry (done)
 
 ### What changed

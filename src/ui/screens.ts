@@ -1,8 +1,10 @@
 import { TUNING } from '../data/tuning';
 import type { Run } from '../game/run';
+import { CODEX_ENTRIES, entryText, type Codex } from '../game/codex';
+import { UNLOCKS, type DiscoveryKind } from '../data/unlocks';
 import { appendRich } from './spellView';
 
-export type ScreenKind = 'title' | 'pause' | 'shrine' | 'death' | 'won';
+export type ScreenKind = 'title' | 'pause' | 'shrine' | 'death' | 'won' | 'codex';
 
 export interface ScreenActions {
   /** A descent; `seedText` may be blank (random). */
@@ -10,6 +12,11 @@ export interface ScreenActions {
   daily(): void;
   tutorial(): void;
   lab(): void;
+  /** Open the Codex (Esc returns). */
+  codex(): void;
+  closeCodex(): void;
+  /** Pick the next unlocked starting wand. */
+  cycleWand(): void;
   resume(): void;
   /** Start over the same kind of run (a new seed for random runs). */
   again(): void;
@@ -56,12 +63,13 @@ export class Screens {
     private readonly root: HTMLElement,
     private readonly actions: ScreenActions,
     private readonly title: TitleInfo,
+    private readonly book: Codex,
   ) {
     root.hidden = true;
   }
 
   show(kind: ScreenKind | null, run: Run | null): void {
-    const key = `${kind}|${run?.seed}|${run?.depth}|${run?.phase}|${run?.shrinePicks}|${run?.offers.length}|${run?.gold}`;
+    const key = `${kind}|${run?.seed}|${run?.depth}|${run?.phase}|${run?.shrinePicks}|${run?.offers.length}|${run?.gold}|${this.book.startingWand.id}|${this.book.runCount}`;
     if (key === this.key) return;
     this.key = key;
     this.current = kind;
@@ -80,7 +88,52 @@ export class Screens {
       case 'death':
       case 'won':
         return this.buildEnd(kind, run!);
+      case 'codex':
+        return this.buildCodex();
     }
+  }
+
+  /** The Reaction Codex: everything discovered (and what's still missing), unlocks, and the spell journal. */
+  private buildCodex(): void {
+    const r = this.root;
+    const b = this.book;
+    el('div', 'screen-title', r, 'REACTION CODEX');
+    el('div', 'screen-sub', r, `${b.runCount} run${b.runCount === 1 ? '' : 's'} recorded`);
+    const panel = el('div', 'codex-panel', r);
+    const sections: [DiscoveryKind, string][] = [
+      ['reaction', 'Reactions'],
+      ['material', 'Materials'],
+      ['creature', 'Creatures'],
+      ['glyph', 'Glyphs'],
+    ];
+    for (const [kind, label] of sections) {
+      const all = CODEX_ENTRIES[kind];
+      el('div', 'codex-section', panel, `${label}  ${b.count(kind)}/${all.length}`);
+      const grid = el('div', 'codex-grid', panel);
+      for (const id of all) {
+        const known = b.has(kind, id);
+        const entry = el('div', known ? 'codex-entry' : 'codex-entry unknown', grid);
+        entry.textContent = known ? entryText(kind, id) : '???';
+      }
+    }
+    el('div', 'codex-section', panel, `Unlocks  ${b.unlocked().length}/${UNLOCKS.length}`);
+    for (const u of UNLOCKS) {
+      const open = b.meets(u);
+      el('div', `codex-unlock ${open ? 'open' : 'closed'}`, panel, open ? `✓ ${u.title}: ${u.text}` : `○ ${u.title}: ${u.hint}`);
+    }
+    el('div', 'codex-section', panel, 'Spell journal: most cast');
+    const top = b.topSpells();
+    const spells = el('div', 'codex-grid', panel);
+    if (top.length === 0) el('div', 'codex-entry unknown', spells, 'nothing cast yet');
+    for (const s of top) el('div', 'codex-entry', spells, `${s.spell}  ×${s.casts}`);
+    el('div', 'codex-section', panel, 'Recent runs');
+    const runs = b.recentRuns().slice(0, 8);
+    if (runs.length === 0) el('div', 'codex-run', panel, 'no runs yet');
+    for (const x of runs) {
+      el('div', 'codex-run', panel, `seed ${x.seed}${x.date ? ` (${x.date})` : ''} · depth ${x.depth}/${x.totalLevels} · ${x.ending} · wand: ${x.spell}${x.best ? ` · best: ${x.best}` : ''}`);
+    }
+    const menu = el('div', 'screen-menu', r);
+    this.button(menu, 'Esc', 'back', () => this.actions.closeCodex());
   }
 
   /** Copy the postcard (and say so). */
@@ -124,7 +177,10 @@ export class Screens {
     this.seedField = seed;
     this.button(menu, 'D', `daily run · ${this.title.dailyDate} · seed ${this.title.dailySeed}`, () => this.actions.daily());
     this.button(menu, 'T', 'tutorial', () => this.actions.tutorial());
-    this.button(menu, 'L', 'lab: paint materials, every glyph', () => this.actions.lab());
+    this.button(menu, 'L', 'lab: paint materials with every glyph you know', () => this.actions.lab());
+    this.button(menu, 'C', `codex · ${this.book.count('reaction')}/${CODEX_ENTRIES.reaction.length} reactions · ${this.book.unlocked().length}/${UNLOCKS.length} unlocks`, () => this.actions.codex());
+    const wands = this.book.startingWands();
+    if (wands.length > 1) this.button(menu, 'W', `starting wand: ${this.book.startingWand.name}`, () => this.actions.cycleWand());
     el('div', 'screen-help', r, 'A/D move · W jump · left click cast · right click harvest · Tab spell editor · Esc pause');
   }
 
@@ -135,6 +191,7 @@ export class Screens {
     const menu = el('div', 'screen-menu', r);
     this.button(menu, 'Esc', 'resume', () => this.actions.resume());
     this.button(menu, 'R', 'restart run', () => this.actions.again());
+    this.button(menu, 'C', 'codex', () => this.actions.codex());
     this.button(menu, 'Q', 'quit to title', () => this.actions.quit());
   }
 

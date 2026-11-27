@@ -10,6 +10,8 @@ const BAR_CELLS = 20;
 const FIZZLE_FLASH_TICKS = 30;
 /** Ticks a message stays on screen. */
 const MESSAGE_TICKS = 150;
+/** Ticks a DISCOVERED banner stays up. */
+const DISCOVERY_TICKS = 200;
 
 function bar(value: number, max: number): string {
   const filled = Math.max(0, Math.min(BAR_CELLS, Math.round((value / max) * BAR_CELLS)));
@@ -30,12 +32,16 @@ export class Hud {
   private readonly msg: HTMLElement;
   private readonly place: HTMLElement;
   private readonly tip: HTMLElement;
+  private readonly discover: HTMLElement | null;
+  private discoverKey = '';
   private pouchKey = '';
   private wandKey = '';
   private msgKey = '';
   private tipKey = '';
 
-  constructor(root: HTMLElement, tip: HTMLElement) {
+  constructor(root: HTMLElement, tip: HTMLElement, discover: HTMLElement | null = null) {
+    this.discover = discover;
+    if (discover) discover.hidden = true;
     root.textContent = '';
     this.place = line(root, 'hud-place');
     this.msg = line(root, 'hud-msg');
@@ -67,6 +73,29 @@ export class Hud {
     this.updatePouch(game);
     this.updateMessages(game);
     this.updateTip(game, run);
+    this.updateDiscoveries(game);
+  }
+
+  /** DISCOVERED / UNLOCKED banners: the latest two, for a few seconds. */
+  private updateDiscoveries(game: Game): void {
+    const el = this.discover;
+    if (!el) return;
+    const recent = game.discoveries.filter((d) => game.tick - d.tick < DISCOVERY_TICKS).slice(-2);
+    const key = recent.map((d) => d.tick + d.text).join('|');
+    if (key === this.discoverKey) return;
+    this.discoverKey = key;
+    el.hidden = recent.length === 0;
+    el.textContent = '';
+    for (const d of recent) {
+      const row = document.createElement('div');
+      row.className = d.title === 'UNLOCKED' ? 'discover-row unlocked' : 'discover-row';
+      const t = document.createElement('b');
+      t.textContent = d.title;
+      const body = document.createElement('span');
+      body.textContent = d.text;
+      row.append(t, body);
+      el.append(row);
+    }
   }
 
   /** The spell in its slots. Matter with no charges is greyed; a fizzle flashes red. */
