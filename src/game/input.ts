@@ -16,6 +16,8 @@ export interface TickInput {
   readonly aimY: number;
   /** Harvest button (right mouse) is held. */
   readonly harvest: boolean;
+  /** Cast button (left mouse) is held. Holding repeats as fast as the wand recharges. */
+  readonly cast: boolean;
 }
 
 export const NO_INPUT: TickInput = {
@@ -26,6 +28,7 @@ export const NO_INPUT: TickInput = {
   aimX: 0,
   aimY: 0,
   harvest: false,
+  cast: false,
 };
 
 /** Convenience for tests: NO_INPUT with overrides. */

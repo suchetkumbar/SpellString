@@ -15,6 +15,8 @@ const DT = 1 / TUNING.simHz;
 export class Pouch {
   readonly counts = new Uint16Array(MAX_MATERIALS);
   readonly inFlight = new Uint16Array(MAX_MATERIALS);
+  /** 1 once a material has ever had a charge: its glyph is owned for spells. */
+  readonly seen = new Uint8Array(MAX_MATERIALS);
 
   constructor(readonly cap: number = TUNING.pouchCap) {}
 
@@ -28,6 +30,7 @@ export class Pouch {
   }
 
   add(material: number, n = 1): void {
+    if (n > 0) this.seen[material] = 1;
     this.counts[material] = Math.min(this.cap, (this.counts[material] as number) + n);
   }
 

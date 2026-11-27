@@ -17,6 +17,11 @@ export const TUNING = {
   gasBubbleChance: 0.2,
   /** Chance per tick that a lighter gas swaps up through a heavier gas. */
   gasSwapChance: 0.5,
+  /**
+   * Chance per tick that a gas cell tries to rise (else it lingers and billows sideways).
+   * 1 = 60 cells/s, far too fast to read a steam cloud; 0.35 is about 20 cells/s.
+   */
+  gasRiseChance: 0.35,
   /** Chance per tick that a rising gas drifts diagonally instead of straight up. */
   gasDriftChance: 0.35,
   /**
@@ -107,9 +112,6 @@ export const TUNING = {
 
   // --- Player: health, mana, statuses ---
   playerMaxHp: 100,
-  playerMaxMana: 100,
-  /** Mana regained per second. */
-  manaRegen: 20,
   /** Burning: how long it lasts after the last fire contact, in ticks. */
   burnTicks: 180,
   /** Burning damage per second. */
@@ -128,6 +130,53 @@ export const TUNING = {
   suffocateGraceTicks: 60,
   /** Suffocation damage per second. */
   suffocateDps: 12,
+
+  // --- Spells: the starting wand (M4) ---
+  /** Glyph slots in the starting wand. */
+  wandSlots: 4,
+  /** Starting wand mana pool. */
+  wandMaxMana: 100,
+  /** Starting wand mana regained per second. */
+  wandManaRegen: 20,
+  /** Ticks between the casts of one spell (">~>^" fires its two bolts this far apart). */
+  wandCastDelayTicks: 5,
+  /** Ticks after a spell's last cast before the wand can fire again (holding the button repeats). */
+  wandRechargeTicks: 18,
+  /** The starting wand's spell. */
+  wandStartSpell: '>',
+
+  // --- Spells: costs and caps ---
+  /** Mana per glyph in the expanded spell (digits save slots, not mana). */
+  spellCost: { delivery: 5, matter: 2, split: 10, trigger: 10, chaos: 4, loop: 15 },
+  /** Cells released per matter glyph when a carrier bursts. */
+  burstCellsPerGlyph: 12,
+  /**
+   * Matter released together reacts at once: one reaction pass over the burst
+   * with contact chances multiplied by this (fire+water 0.3 -> 0.9), so >~^ boils on the spot.
+   */
+  burstMixChanceScale: 3,
+  /** Per-click caps, triggers included. Anything past them is cut off with a warning. */
+  maxCarriersPerClick: 32,
+  maxCellsPerClick: 400,
+  maxTriggerDepth: 4,
+  /** Angle between fanned carriers from "+", in degrees. */
+  splitSpreadDeg: 9,
+
+  // --- Spells: carriers ---
+  /** Bolt ">": speed in cells/s and range in cells (it bursts at the end of its range). */
+  boltSpeed: 46,
+  boltRange: 48,
+  /** Lob ")": launch speed (cells/s), gravity (cells/s^2) and lifetime (ticks). */
+  lobSpeed: 26,
+  lobGravity: 42,
+  lobMaxTicks: 240,
+  /** Carriers can't hit the caster for this many ticks after leaving the wand. */
+  castGraceTicks: 12,
+  /** Kinetic shot (a delivery with no payload): damage and knockback speed (cells/s). */
+  kineticDamage: 6,
+  kineticKnockback: 14,
+  /** Multiplier on damage the witch takes from her own spells. */
+  selfDamageScale: 1,
 
   // --- Harvesting ---
   /** Max charges of each material in the glyph pouch. */

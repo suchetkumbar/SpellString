@@ -1,5 +1,135 @@
 # Spellstring: progress log
 
+## M4: Spells v1 (done)
+
+### What changed
+- **Spell language** (`src/game/spell/`):
+  - `parse.ts` holds the tokenizer and a recursive-descent parser for the full spec grammar, including M7's `!`, `?`, `[ ]n`, `@` and `_`, so those already parse.
+  - Every non-space character takes a slot. The parser never throws: every problem comes back as a friendly error with the position of the character at fault.
+  - Error types: matter before a delivery, unknown glyph, unowned glyph, `!` with nothing after it, `!` in the wrong place, unclosed `[`, stray `]`, missing loop count, empty loop, digit in the wrong place (several variants), dangling `+`, too long for the wand, and empty spell.
+- **Interpreter** (`plan.ts`):
+  - Turns the parse tree into a cast plan: one delivery and a carrier count per cast, digits expanded into payloads, loops expanded, and trigger plans nested under their cast.
+  - Mana is the sum over the expanded spell. Costs are in `TUNING.spellCost` (delivery 5, matter 2, `+` 10, `!` 10, `?` 4, loop 15).
+  - Per-click caps (32 carriers, 400 cells, trigger depth 4) are applied *while* expanding, so `[[[[[[>~]9]9]9]9]9]9` costs bounded work. The plan records why it was cut off, and the game warns.
+  - `compile.ts` runs parse + plan for the wand, the editor and the HUD.
+- **Wand** (`src/game/wand.ts`):
+  - Has slots, max mana, mana regen, cast delay and recharge. **Mana now lives on the wand**, as the spec puts it, not on the witch.
+  - The starting wand has 4 slots, 100 MP, 20 MP/s, a 5-tick cast delay and an 18-tick recharge, with the spell `>`.
+  - The wand only ever holds a spell that compiles.
+- **Casting** (`src/game/casting.ts`):
+  - A click pays for the whole spell up front, then queues its casts, which fire a cast delay apart and aim at the cursor at the moment each fires. Recharge starts after the last cast. Holding the button repeats as fast as recharge allows.
+  - Not enough mana: nothing fires, and a message says how much it needs.
+  - `+` fans carriers out 9° apart.
+  - **Charges are spent per carrier as each cast fires**, so `+>~` spends 3. A glyph with no charges **fizzles**: a grey glyph pops off the witch, the slot flashes red in the HUD, and a message says "Fizzle: no `~` charges (water)". The rest of the payload still flies. A carrier whose whole payload fizzled is a harmless dud, drawn as a grey glyph.
+- **Carriers:**
+  - `>` bolt: 46 cells/s in a straight line, range 48.
+  - `)` lob: 26 cells/s with gravity 42.
+  - They march in steps of 0.25 cells, so they never skip a wall.
+  - They burst on rock, wood or powder, on splashing down into a liquid, or at the end of their range. A carrier launched underwater swims out before it can splash.
+  - A kinetic shot (no payload) does 6 damage plus knockback, and only to the witch for now (creatures arrive in M5).
+  - Carriers ignore the witch for 12 ticks after launch. After that, her own spells can hit her, scaled by `selfDamageScale`.
+- **Payload release** (`src/game/release.ts`):
+  - 12 cells per matter glyph are flood-filled into the open (empty or gas) space connected to the impact point, nearest first, so a burst never leaks through a wall.
+  - The glyphs are shuffled together, and then **one boosted reaction pass runs over the burst** (contact chances ×3), so `>~^` boils into steam on the spot instead of the water draining away first.
+  - New `Simulation.reactAt(x, y, scale)`.
+- **Ownership:** digits are always owned. `>`, `)` and `+` are known from the start. **A matter glyph is owned once you've harvested at least one charge of it** (`Pouch.seen`).
+- **Spell editor** (`src/ui/editor.ts`), opened with **Tab**:
+  - It pauses the game.
+  - It shows the spell in a text field, selected so typing replaces it at once.
+  - **Typing only accepts glyphs you own.** A refused key shows why ("You have never collected `~` (water): harvest some first.").
+  - **Paste goes through**, with missing glyphs struck through in red and an error.
+  - Live as you type: the slot boxes (errors underlined, empty charges greyed, overflow dashed), the cost, what the spell does ("1 cast, 3 carriers, 36 cells, uses ~3"), errors with column numbers, and warnings (a glyph will fizzle, the spell will be cut off, it costs more than the wand holds).
+  - The owned glyphs are listed with their charges, and clicking one inserts it.
+  - **Enter or Tab** writes the spell into the wand. **Esc** cancels. An invalid spell isn't written: the wand keeps its old spell, and the draft is kept for the next time you open the editor.
+- **HUD:**
+  - A `WAND [>][~][^][·] 9 MP` line: glyphs you have no charges for are grey, and a fizzled glyph flashes red. The cost dims while the wand is recharging.
+  - A message line above the bars (wand written, fizzles, not enough mana, cut off).
+- **Rendering:**
+  - Carriers are drawn as their payload glyph (cycling through multi-glyph payloads) with a dim trail. A kinetic shot is drawn as `•`.
+  - Fizzles are drawn as grey glyphs, and impacts throw `*` sparks.
+- **Input:** left click casts. Clicks are held until a tick uses them, like jump presses, so a click shorter than a frame still fires. Keys typed into the editor never reach the game.
+- **Two changes to earlier milestones:**
+  - **Gas rise rate:** gases now rise on 35% of ticks and otherwise billow sideways (`TUNING.gasRiseChance`). Steam used to shoot up at 60 cells/s, so a `>~^` cloud was gone before you could read it.
+  - **Shallow puddles:** the witch can jump off the bottom of a puddle that is no deeper than she is tall. Before, a 1-deep puddle counted as swimming and she couldn't jump out.
+
+### How to try it
+1. Run `npm run dev`.
+2. Harvest some water (left basin) and fire (the burning scaffold) with right click.
+3. Press **Tab**, type `>~^` and press Enter. Left-click at a wall: a steam burst.
+4. Harvest sand and write `>.3`. Shoot it into a pit or a corner, then walk across the pile.
+5. Harvest oil and write `)=3`. Lob it, then light the puddle with `>^`.
+6. Write `+>^` for three fanned fire bolts.
+7. Spend all your fire, then cast `>~^` again to see `^` fizzle while the water still flies.
+8. In the editor, try typing a glyph you haven't harvested (refused), and try `3>`, `>~33` or `>~^.=` to see the errors.
+
+### Tests (141 unit, 5 e2e)
+- **Parser** (`spell.test.ts`):
+  - Every M4 example spell (`>~`, `>^`, `>.3`, `>~^`, `)=3`, `+>^`), plus kinetic `>`, multiple casts, and M7's `>!)~5`, `[>.]4`, a trigger inside a loop, `_` and `@`.
+  - **Every error type**, with exact positions and messages.
+  - A 3,000-spell fuzz test: nothing throws, hangs or exceeds a cap.
+- **Interpreter:** mana for every example spell, digit and `+` expansion, charges needed (`+>~` = 3 water), loops, triggers, all three caps, triggers counting once per carrier, and a no-hang test on 6-deep nested loops.
+- **Editor filter:** typing rejects glyphs you don't own and unknown characters.
+- **Casting** (`casting.test.ts`):
+  - The starting wand.
+  - Writing only owned and valid spells.
+  - Ownership rules.
+  - Mana spent and the bolt's direction.
+  - Holding repeats at exactly the recharge rate.
+  - Cast delay between casts.
+  - Refusal without enough mana.
+  - `+>~` fans 3 carriers 9° apart and spends 3 water.
+  - Fizzle with the rest still working.
+  - A fully fizzled carrier is a dud.
+  - A bolt never hits the caster on launch.
+  - **Self-damage:** a lob thrown straight up comes down on her for exactly the kinetic damage.
+- **Release:** 12 cells per glyph, never through a wall, displaces gas, and water + fire becomes at least 4 steam cells before the first sim tick (checked on 10 seeds).
+- **Scenarios:**
+  - **`>~^` at a wall produces steam.**
+  - **`)=3` leaves a 36-cell oil puddle**, at most 2 rows deep and at least 17 wide.
+  - `>.3` fills a pit, and the witch then walks across it.
+  - A `>~3` bolt puts out a burning wood pile that is still burning in a control run.
+- **Movement:** she jumps out of a puddle as deep as she is tall, but gets no rocket jump off the bottom of a deep pool.
+- **Performance:** a click at the caps (32 carriers, 400 cells) costs 0.08 ms/tick on average, 1.1 ms at worst. The busy world is still about 2.0 ms/tick.
+- **Playwright:**
+  - Tab opens the editor and the game pauses (the tick count stops).
+  - Typing `~` without owning it is refused, and the editor explains why.
+  - A pasted `>^` shows the missing `^` struck through, plus an error.
+  - `>~3` types once water is owned and shows "cost 11 MP". Enter writes it into the wand.
+  - A left click casts it and spends 3 water.
+  - No console errors.
+
+### Feel decisions to review
+- **Starting wand:** 100 MP, 20 MP/s, cast delay 5 ticks (0.08 s), recharge 18 ticks (0.3 s). Holding the button with `>` fires about 3.3 times a second.
+- **Bolt** 46 cells/s with range 48. **Lob** 26 cells/s with gravity 42 (peak about 8 cells straight up). Lobs are lighter than the witch (gravity 70), so they read as thrown.
+- **Burst:** 12 cells per glyph, filling nearest-first with a little jitter, so bursts come out roughly round. Released matter reacts on the spot at 3× its contact chance (`burstMixChanceScale`).
+- **Editor:**
+  - Opening it selects the whole spell, so you can type a new one immediately, since speed matters mid-fight. Arrow keys deselect if you want to edit.
+  - Tab both opens it and writes the spell, so a quick swap is Tab, type, Tab.
+- **Kinetic shot:** 6 damage, 14 cells/s knockback. **Self-damage scale is 1.**
+- **Fizzled carriers still fly**, as grey duds, so you see the fizzle at the target as well as at the wand.
+- **Gas rise chance 0.35:** steam lingers about 3× longer near where it formed. It still rains back down in the test room.
+
+### Ambiguities resolved (please check)
+- **What "owned" means.** I chose: matter glyphs are owned once harvested at least once; `>`, `)` and `+` are known from the start; digits are always owned. M7 glyphs (`@ _ ! ? [ ]`) parse but aren't owned yet. The M6 Glyph Shrine can start the run with fewer and offer the rest.
+- **Mana belongs to the wand** (the spec lists max mana under wand stats). The HUD's MP bar shows the active wand's mana.
+- **When charges are spent:** when each cast fires, per carrier. Mana for the whole click is paid up front, so a fizzle doesn't refund mana.
+- **An invalid spell is never written to the wand.** Closing the editor on an error keeps the old spell and shows why, and the draft comes back next time. A broken spell can't leave you unarmed mid-fight.
+- **Carriers hit:** solids, powders, and the surface of a liquid. They pass through fire and gas.
+- **Caps cut at the point they're reached:** a cast is trimmed to fit (fewer carriers, then fewer glyphs), and everything after it is dropped. Mana is only charged for what fires.
+- **Triggers count toward the caps once per carrier** (every carrier triggers), but their mana is paid once per glyph, matching "sum over the expanded spell".
+- **Until M7, `@` and `_` fly like bolts** if a test owns them. They can't be owned in play yet.
+
+### Known issues
+- **Self-damage is tracked only for kinetic hits** ("killed by: > (your own bolt)"). Fire or steam you cast yourself is reported as plain "burning" or "scalding steam". Tracking who made a cell is planned with the death screens in M6.
+- **Underwater bursts release nothing:** release only fills empty or gas cells, so matter burst inside a pool is lost along with its charges.
+- **Fire released in mid-air hangs there** until it burns out, because fire cells don't fall (M2 fire behavior).
+- **Esc only closes the editor** for now. The pause menu comes in M6.
+
+### Dependencies
+No new dependencies.
+
+---
+
 ## M3: The witch (done)
 
 ### What changed
@@ -90,7 +220,7 @@
 - The HUD panel covers a strip in the bottom-left of the view. It may move in the M9 UI pass.
 - The HUD pouch shows arrived charges only; there's no in-flight counter.
 - Harvest particles use the material's brightest shade, which can blend in when flying over the same material.
-- Left click does nothing outside Lab until spells arrive in M4.
+- ~~Left click does nothing outside Lab until spells arrive in M4.~~ Fixed in M4.
 
 ### Dependencies
 No new dependencies.

@@ -10,12 +10,19 @@ export const ENTITY_GLYPHS = {
   playerScalded: { glyph: '@', color: '#ff8fb1' },
   playerHurt: { glyph: '@', color: '#ff4d4d' },
   playerDead: { glyph: '@', color: '#5c5c66' },
+  /** A kinetic shot (a delivery with no payload). */
+  kinetic: { glyph: '•', color: '#f6f0ff' },
+  /** Impact sparks. */
+  spark: { glyph: '*', color: '#fff3b0' },
 } as const satisfies Record<string, EntityGlyphDef>;
 
 export type EntityGlyphKey = keyof typeof ENTITY_GLYPHS;
 
 /** Glyph used in ASCII maps to mark the player spawn. */
 export const SPAWN_MARKER = '@';
+
+/** Fizzled glyphs (no charges) are drawn in this grey. */
+export const GHOST_COLOR = '#6b6f7c';
 
 export const COLORS = {
   /** Inside the level, empty cells. */

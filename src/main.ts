@@ -11,6 +11,7 @@ import { buildStyleTable } from './render/styles';
 import { DebugOverlay } from './ui/debugOverlay';
 import { Lab } from './ui/lab';
 import { Hud } from './ui/hud';
+import { SpellEditor } from './ui/editor';
 import type { RenderEntity } from './render/renderer';
 
 declare global {
@@ -59,11 +60,14 @@ async function boot(): Promise<void> {
   const camera = new Camera();
   const loop = new FixedStep(TUNING.simHz, TUNING.maxCatchUpSteps);
   const hud = new Hud(el('hud'), el('death'));
+  // Tab pauses the game; on close, drop the time spent in the editor so the sim doesn't catch up.
+  const editor = new SpellEditor(el('editor'), () => loop.reset());
   let seed = DEFAULT_SEED;
   let game = Game.fromAscii(testRoom, seed);
   camera.snapTo(game.player.x, game.player.y);
   /** Instant restart: a fresh copy of the room, next seed. */
   const restart = (): void => {
+    editor.close(false);
     seed++;
     game = Game.fromAscii(testRoom, seed);
     camera.snapTo(game.player.x, game.player.y);
@@ -98,9 +102,10 @@ async function boot(): Promise<void> {
   deviceH = Math.round(canvas.clientHeight * dpr);
   applySize();
 
-  // Jump presses are latched until a tick consumes them, so a press in a frame
-  // that runs zero ticks is never lost.
+  // Jump presses and clicks are latched until a tick consumes them, so a press
+  // in a frame that runs zero ticks (or a click shorter than a frame) is never lost.
   let jumpLatch = false;
+  let castLatch = false;
   let aimX = 0;
   let aimY = 0;
   const readTickInput = (): TickInput => {
@@ -117,6 +122,7 @@ async function boot(): Promise<void> {
       aimX,
       aimY,
       harvest: !lab.enabled && (input.mouseButtons & 2) !== 0,
+      cast: !lab.enabled && (castLatch || (input.mouseButtons & 1) !== 0),
     };
   };
 
@@ -153,19 +159,30 @@ async function boot(): Promise<void> {
       applySize();
     }
 
+    // Spell editor: Tab toggles (writing the spell), Esc cancels. The game is paused while it's open.
+    if (input.actionPressed('editor')) {
+      if (editor.isOpen) editor.close(true);
+      else if (!game.player.dead) editor.open(game);
+    } else if (editor.isOpen && input.actionPressed('pause')) {
+      editor.close(false);
+    }
+    const paused = editor.isOpen;
+
     // Lab edits apply between ticks, using last frame's view for the mouse cell.
-    const labSteps = lab.update(input, game.sim, input.mouseCell(renderer.view, dpr));
+    const labSteps = paused ? 0 : lab.update(input, game.sim, input.mouseCell(renderer.view, dpr));
 
     if (game.player.dead && input.actionPressed('restart')) restart();
     if (input.actionPressed('jump')) jumpLatch = true;
+    if (!paused && (input.mousePressed & 1) !== 0) castLatch = true;
 
     // Fixed-timestep simulation.
-    const steps = loop.advance(dt);
+    const steps = paused ? 0 : loop.advance(dt);
     const simStart = performance.now();
     const simulateWorld = !(lab.enabled && lab.paused);
     for (let i = 0; i < steps; i++) {
       game.step(readTickInput(), simulateWorld);
       jumpLatch = false;
+      castLatch = false;
     }
     for (let i = 0; i < labSteps; i++) game.sim.step();
     const simMs = performance.now() - simStart;
@@ -179,6 +196,26 @@ async function boot(): Promise<void> {
     camera.follow(px + p.body.vx * lead, py + p.body.vy * lead * 0.5, dt / 1000);
 
     const entities: RenderEntity[] = [];
+    const top = styles.shades - 1;
+    for (const c of game.caster.carriers) {
+      const cx = c.prevX + (c.x - c.prevX) * a;
+      const cy = c.prevY + (c.y - c.prevY) * a;
+      let style: number;
+      if (c.kinetic) style = styles.entity.kinetic;
+      else if (c.payload.length === 0) style = styles.materialGhost[c.dud] as number;
+      else {
+        // Multi-glyph payloads cycle through their glyphs as they fly.
+        const m = c.payload[(c.age >> 2) % c.payload.length] as number;
+        style = (styles.materialFirst[m] as number) + top;
+        // A short dim trail.
+        entities.push({ style: styles.materialFirst[m] as number, x: cx - c.vx * 0.025, y: cy - c.vy * 0.025 });
+      }
+      entities.push({ style, x: cx, y: cy });
+    }
+    for (const f of game.caster.fx) {
+      const style = f.kind === 'fizzle' && f.material > 0 ? (styles.materialGhost[f.material] as number) : styles.entity.spark;
+      entities.push({ style, x: f.prevX + (f.x - f.prevX) * a, y: f.prevY + (f.y - f.prevY) * a });
+    }
     for (const g of game.harvester.particles) {
       entities.push({
         style: (styles.materialFirst[g.material] as number) + styles.shades - 1,

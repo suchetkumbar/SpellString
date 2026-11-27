@@ -149,6 +149,20 @@ export class Simulation {
     return true;
   }
 
+  /**
+   * Run cell (x, y)'s contact reactions with its neighbors right now, with
+   * chances scaled by `chanceScale`. Used when a spell releases several
+   * materials at once, so they react on the spot instead of drifting apart.
+   */
+  reactAt(x: number, y: number, chanceScale: number): boolean {
+    const g = this.grid;
+    if (!g.inBounds(x, y)) return false;
+    const i = g.index(x, y);
+    const m = g.mat[i] as number;
+    if (m >= MAX_MATERIALS) return false;
+    return this.react(x, y, i, m, chanceScale);
+  }
+
   /** Clear the whole grid to empty. */
   clear(): void {
     this.grid.mat.fill(EMPTY);
@@ -281,6 +295,11 @@ export class Simulation {
     if (this.age(x, y, i, m)) return;
     const rng = this.rng;
     const d = rng.next() < 0.5 ? -1 : 1;
+    if (rng.next() >= TUNING.gasRiseChance) {
+      // Lingering this tick: billow sideways now and then, so clouds stay readable.
+      if (rng.next() < 0.5 && this.grid.get(x + d, y) === EMPTY) this.moveTo(i, x + d, y, x, y);
+      return;
+    }
     if (rng.next() < TUNING.gasDriftChance) {
       if (this.tryRise(x, y, i, m, x + d, y - 1)) return;
       if (this.tryRise(x, y, i, m, x, y - 1)) return;
@@ -427,7 +446,7 @@ export class Simulation {
    * Check contact reactions from cell i (material m, as reaction side `a`)
    * against its 4 neighbors. Returns true if cell i itself changed.
    */
-  private react(x: number, y: number, i: number, m: number): boolean {
+  private react(x: number, y: number, i: number, m: number, chanceScale = 1): boolean {
     const g = this.grid;
     const W = g.width;
     const rng = this.rng;
@@ -444,7 +463,7 @@ export class Simulation {
       const r = contactIndex[row + nm] as number;
       if (r < 0 || !((contactDirMask[r] as number) & (1 << n))) continue;
       const R = CONTACTS[r]!;
-      if (rng.next() >= R.chance) continue;
+      if (rng.next() >= R.chance * chanceScale) continue;
       if (R.bTo !== undefined) this.setCell(j, nx, ny, matId(R.bTo), R.bLife);
       this.count(contactGlobal[r]!, nx, ny);
       if (R.aTo !== undefined) {

@@ -64,3 +64,33 @@ describe('simulation performance', () => {
     expect(avg).toBeLessThan(25);
   });
 });
+
+describe('casting performance', () => {
+  it('a click at the per-click caps (32 carriers, 400 cells) stays cheap', async () => {
+    const { Game, tickInput } = await import('../../src/game/game');
+    const { Wand } = await import('../../src/game/wand');
+    const rows = ['#'.repeat(120)];
+    for (let y = 0; y < 60; y++) rows.push('#' + ' '.repeat(118) + '#');
+    rows.push('#'.repeat(120));
+    rows[58] = '#' + ' '.repeat(10) + '@' + ' '.repeat(107) + '#';
+    const g = Game.fromAscii(rows.join('\n'), 1);
+    // A test wand big enough to hit the caps; every glyph owned and charged.
+    const wand = new Wand({ slots: 32, maxMana: 10_000, manaRegen: 0, castDelayTicks: 0, rechargeTicks: 0 });
+    (g as { wand: InstanceType<typeof Wand> }).wand = wand;
+    for (const m of [MAT.water, MAT.fire, MAT.sand, MAT.oil]) g.pouch.add(m, 50);
+    const c = wand.compile('[+++++>~^.=]9', () => true);
+    expect(c.ok).toBe(true);
+    wand.spell = c;
+    expect(c.plan.carriers).toBeLessThanOrEqual(32);
+    let worst = 0;
+    const start = performance.now();
+    for (let t = 0; t < 240; t++) {
+      const t0 = performance.now();
+      g.step(tickInput({ cast: t === 0, aimX: 100, aimY: 30 }));
+      worst = Math.max(worst, performance.now() - t0);
+    }
+    const avg = (performance.now() - start) / 240;
+    console.log(`[perf] capped click: ${avg.toFixed(3)} ms/tick avg, worst ${worst.toFixed(2)} ms`);
+    expect(worst).toBeLessThan(40); // generous: the budget is 4 ms; this only catches blowups
+  });
+});

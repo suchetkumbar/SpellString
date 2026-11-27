@@ -121,3 +121,72 @@ test('the witch walks and jumps, harvests, dies and restarts', async ({ page }) 
   expect(await page.evaluate(() => window.spellstring!.game.player.dead)).toBe(false);
   expect(errors).toEqual([]);
 });
+
+test('spell editor: Tab pauses, only owned glyphs type, paste highlights, Enter writes, click casts', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  await page.goto('/');
+  await page.waitForFunction(() => window.spellstring?.game.player.body.grounded === true);
+  await expect(page.locator('#hud')).toContainText('WAND');
+
+  const editor = page.locator('#editor');
+  const field = page.locator('#spell-input');
+  await expect(editor).toBeHidden();
+  await page.keyboard.press('Tab');
+  await expect(editor).toBeVisible();
+  await expect(field).toHaveValue('>');
+
+  // Paused: no ticks while the editor is open.
+  const t0 = await page.evaluate(() => window.spellstring!.game.tick);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.spellstring!.game.tick)).toBe(t0);
+
+  // Water was never harvested, so typing it is refused (the selected text is replaced by '>').
+  await page.keyboard.type('>~');
+  await expect(field).toHaveValue('>');
+  await expect(editor).toContainText('never collected');
+  await page.keyboard.press('Escape');
+  await expect(editor).toBeHidden();
+
+  // Paste goes through, with the missing glyph highlighted and an error.
+  await page.keyboard.press('Tab');
+  await expect(editor).toBeVisible();
+  await field.evaluate((input) => {
+    const data = new DataTransfer();
+    data.setData('text/plain', '>^');
+    input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await expect(field).toHaveValue('>^');
+  await expect(page.locator('#editor .spell-slot.missing')).toHaveCount(1);
+  await expect(editor).toContainText('harvest some first');
+  await page.keyboard.press('Escape');
+
+  // Once water is owned (as if harvested), >~3 types, shows its cost, and Enter writes it.
+  await page.evaluate(() => window.spellstring!.game.pouch.add(3, 20));
+  await page.keyboard.press('Tab');
+  await expect(editor).toBeVisible();
+  await page.keyboard.type('>~3');
+  await expect(field).toHaveValue('>~3');
+  await expect(editor).toContainText('cost 11 MP');
+  await page.keyboard.press('Enter');
+  await expect(editor).toBeHidden();
+  expect(await page.evaluate(() => window.spellstring!.game.wand.spell.text)).toBe('>~3');
+  await expect(page.locator('#hud .hud-wand')).toContainText('~');
+
+  // Left click casts: three water charges spent, and the game is running again.
+  const box = (await page.locator('#game').boundingBox())!;
+  const aim = await page.evaluate(() => {
+    const s = window.spellstring!;
+    const p = s.game.player;
+    const v = s.view!;
+    return { x: (v.originX + (p.x + 8) * v.cell) / s.dpr, y: (v.originY + (p.y - 2) * v.cell) / s.dpr };
+  });
+  await page.mouse.click(box.x + aim.x, box.y + aim.y);
+  await page.waitForTimeout(600);
+  expect(await page.evaluate(() => window.spellstring!.game.pouch.count(3))).toBe(17);
+  expect(await page.evaluate(() => window.spellstring!.game.tick)).toBeGreaterThan(t0 + 10);
+  expect(errors).toEqual([]);
+});

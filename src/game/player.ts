@@ -33,8 +33,6 @@ export class Player {
 
   hp: number = TUNING.playerMaxHp;
   readonly maxHp: number = TUNING.playerMaxHp;
-  mana: number = TUNING.playerMaxMana;
-  readonly maxMana: number = TUNING.playerMaxMana;
 
   /** Ticks of burning left (0 = not burning). */
   burning = 0;
@@ -93,7 +91,7 @@ export class Player {
     }
   }
 
-  /** One fixed tick of movement, statuses and regeneration. */
+  /** One fixed tick of movement and statuses. */
   update(input: TickInput, grid: Grid, sim: Simulation): void {
     const b = this.body;
     this.prevX = b.x;
@@ -106,6 +104,8 @@ export class Player {
     this.swimming = behaviorOf[center] === BEH.liquid;
     const headM = grid.get(Math.floor(b.x), Math.floor(b.y - b.hh + 0.1));
     const headInLiquid = behaviorOf[headM] === BEH.liquid;
+    // Standing in a puddle no deeper than she is tall: she can still jump off the bottom.
+    const shallow = b.grounded && behaviorOf[grid.get(Math.floor(b.x), Math.floor(b.y - b.hh) - 1)] !== BEH.liquid;
     const slow = this.buried ? TUNING.buriedSlow : 1;
 
     // --- Horizontal
@@ -122,8 +122,8 @@ export class Player {
     // --- Vertical
     if (this.swimming) {
       this.jumping = false;
-      if (this.jumpBuffer > 0 && !headInLiquid) {
-        // Leap out at the surface.
+      if (this.jumpBuffer > 0 && (!headInLiquid || shallow)) {
+        // Leap out at the surface (or off the bottom of a shallow puddle).
         b.vy = -TUNING.jumpSpeed * TUNING.swimLeap * slow;
         this.jumpBuffer = 0;
       } else if (input.jumpHeld) {
@@ -156,7 +156,6 @@ export class Player {
     if (res.bonked) this.jumping = false;
 
     this.applyStatuses(grid, sim);
-    if (!this.dead) this.mana = Math.min(this.maxMana, this.mana + TUNING.manaRegen * DT);
   }
 
   private applyStatuses(grid: Grid, sim: Simulation): void {

@@ -1,5 +1,5 @@
 import { MATERIALS } from '../data/materials';
-import { ENTITY_GLYPHS, type EntityGlyphKey } from '../data/glyphs';
+import { ENTITY_GLYPHS, GHOST_COLOR, type EntityGlyphKey } from '../data/glyphs';
 import { TUNING } from '../data/tuning';
 import { scaleColor } from './color';
 
@@ -22,6 +22,8 @@ export interface StyleTable {
   readonly materialBands: Uint8Array;
   /** 1 if the material shimmers (liquids). */
   readonly materialShimmer: Uint8Array;
+  /** materialGhost[id] = the material's glyph in grey (fizzles), or -1. */
+  readonly materialGhost: Int16Array;
   readonly entity: Readonly<Record<EntityGlyphKey, number>>;
 }
 
@@ -32,6 +34,7 @@ export function buildStyleTable(): StyleTable {
   const materialFirst = new Int16Array(256).fill(-1);
   const materialBands = new Uint8Array(256);
   const materialShimmer = new Uint8Array(256);
+  const materialGhost = new Int16Array(256).fill(-1);
 
   for (const m of MATERIALS) {
     if (m.behavior === 'empty') continue;
@@ -47,11 +50,17 @@ export function buildStyleTable(): StyleTable {
     }
   }
 
+  for (const m of MATERIALS) {
+    if (m.behavior === 'empty') continue;
+    materialGhost[m.id] = styles.length;
+    styles.push({ glyph: m.glyph, color: GHOST_COLOR });
+  }
+
   const entity = {} as Record<EntityGlyphKey, number>;
   for (const key of Object.keys(ENTITY_GLYPHS) as EntityGlyphKey[]) {
     entity[key] = styles.length;
     styles.push(ENTITY_GLYPHS[key]);
   }
 
-  return { styles, shades, materialFirst, materialBands, materialShimmer, entity };
+  return { styles, shades, materialFirst, materialBands, materialShimmer, materialGhost, entity };
 }

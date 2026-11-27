@@ -224,6 +224,37 @@ describe('swimming', () => {
     }
     expect(peak).toBeLessThan(3.5);
   });
+
+  it('jumps out of a puddle as deep as she is tall, but not off the bottom of a deep pool', () => {
+    const puddle = run(Game.fromAscii(`
+      ##########
+      #        #
+      #        #
+      #        #
+      #        #
+      #   @    #
+      #~~~~~~~~#
+      ##########`, 1), 60);
+    expect(puddle.player.swimming).toBe(true);
+    expect(puddle.player.body.grounded).toBe(true);
+    const y0 = puddle.player.y;
+    let peak = y0;
+    for (let t = 0; t < 40; t++) {
+      puddle.step(tickInput({ jumpPressed: t === 0, jumpHeld: true }));
+      peak = Math.min(peak, puddle.player.y);
+    }
+    expect(peak).toBeLessThan(y0 - 2.5);
+
+    const deep = run(Game.fromAscii(POOL, 1), 40);
+    run(deep, 120, tickInput({ moveY: 1 })); // sit on the bottom
+    expect(deep.player.body.grounded).toBe(true);
+    const vy: number[] = [];
+    for (let t = 0; t < 3; t++) {
+      deep.step(tickInput({ jumpPressed: t === 0 }));
+      vy.push(deep.player.body.vy);
+    }
+    expect(Math.min(...vy)).toBeGreaterThan(-TUNING.swimSpeed - 1e-9); // swims, no rocket jump
+  });
 });
 
 describe('statuses', () => {
@@ -327,13 +358,13 @@ describe('statuses', () => {
     expect(g.player.x).toBe(x);
   });
 
-  it('mana regenerates up to the max', () => {
+  it('wand mana regenerates up to the max', () => {
     const g = Game.fromAscii('#@#', 1);
-    g.player.mana = 0;
+    g.wand.mana = 0;
     run(g, 60);
-    expect(g.player.mana).toBeCloseTo(TUNING.manaRegen, 5);
+    expect(g.wand.mana).toBeCloseTo(TUNING.wandManaRegen, 5);
     run(g, 60 * 10);
-    expect(g.player.mana).toBe(g.player.maxMana);
+    expect(g.wand.mana).toBe(g.wand.stats.maxMana);
   });
 });
 

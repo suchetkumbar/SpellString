@@ -14,12 +14,16 @@ export class InputManager {
   mouseInside = false;
   /** Bitmask of held mouse buttons (1 = left, 2 = right, 4 = middle). */
   mouseButtons = 0;
+  /** Buttons pressed since the last frame (same bits), so a click shorter than a frame still counts. */
+  mousePressed = 0;
   /** Wheel notches since the last frame (positive = scrolled down / toward the user). */
   wheel = 0;
   private readonly cleanup: Array<() => void> = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.on(window, 'keydown', (e: KeyboardEvent) => {
+      // Typing into a text field (the spell editor) isn't game input. Key-ups still count, so nothing sticks.
+      if (isTextField(e.target)) return;
       if (PREVENT_DEFAULT_KEYS.has(e.code)) e.preventDefault();
       if (!e.repeat) this.pressed.add(e.code);
       this.down.add(e.code);
@@ -35,6 +39,7 @@ export class InputManager {
     this.on(canvas, 'pointerdown', (e: PointerEvent) => {
       this.trackPointer(e);
       this.mouseButtons = e.buttons;
+      this.mousePressed |= e.buttons;
     });
     this.on(window, 'pointerup', (e: PointerEvent) => {
       this.mouseButtons = e.buttons;
@@ -88,6 +93,7 @@ export class InputManager {
   /** Call once at the end of each rendered frame. */
   endFrame(): void {
     this.pressed.clear();
+    this.mousePressed = 0;
     this.wheel = 0;
   }
 
@@ -112,4 +118,8 @@ export class InputManager {
     target.addEventListener(type, h);
     this.cleanup.push(() => target.removeEventListener(type, h));
   }
+}
+
+function isTextField(t: EventTarget | null): boolean {
+  return t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || (t instanceof HTMLElement && t.isContentEditable);
 }
