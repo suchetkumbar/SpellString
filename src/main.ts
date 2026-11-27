@@ -9,6 +9,7 @@ import { Camera } from './render/camera';
 import { Canvas2DRenderer } from './render/canvas2d';
 import { buildStyleTable } from './render/styles';
 import { DebugOverlay } from './ui/debugOverlay';
+import { Lab } from './ui/lab';
 
 const FONT_FAMILY = '"JetBrains Mono", ui-monospace, monospace';
 const DEFAULT_SEED = 1;
@@ -43,6 +44,7 @@ async function boot(): Promise<void> {
 
   const canvas = el<HTMLCanvasElement>('game');
   const debug = new DebugOverlay(el('debug'));
+  const lab = new Lab(el('lab'));
   const input = new InputManager(canvas);
   const styles = buildStyleTable();
   const renderer = new Canvas2DRenderer(canvas, styles, FONT_FAMILY);
@@ -104,11 +106,16 @@ async function boot(): Promise<void> {
       applySize();
     }
 
+    // Lab edits apply between ticks, using last frame's view for the mouse cell.
+    const labSteps = lab.update(input, game.sim, input.mouseCell(renderer.view, dpr));
+
     // Fixed-timestep simulation.
     const steps = loop.advance(dt);
     const simStart = performance.now();
     const tickInput = readTickInput();
-    for (let i = 0; i < steps; i++) game.step(tickInput);
+    const simulateWorld = !(lab.enabled && lab.paused);
+    for (let i = 0; i < steps; i++) game.step(tickInput, simulateWorld);
+    for (let i = 0; i < labSteps; i++) game.sim.step();
     const simMs = performance.now() - simStart;
 
     // Interpolate entities between ticks.
@@ -125,22 +132,33 @@ async function boot(): Promise<void> {
       camera,
       entities: [{ style: styles.entity.player, x: px, y: py }],
       cursor,
+      timeMs: now,
+      brushRadius: lab.enabled ? lab.brush : 0,
+      chunks: {
+        shift: game.sim.chunkShift,
+        chunksX: game.sim.chunksX,
+        dirty: game.sim.chunkDirty,
+        active: game.sim.chunkActive,
+      },
+      showActiveChunks: debug.visible,
     });
     const renderMs = performance.now() - renderStart;
 
-    debug.record(now, dt, steps, simMs, renderMs);
+    debug.record(now, dt, steps + labSteps, simMs, renderMs);
     if (now - lastDebugDraw >= TUNING.debugRefreshMs) {
       lastDebugDraw = now;
       let cursorText = 'cursor  -';
       if (cursor && game.grid.inBounds(cursor.x, cursor.y)) {
         const m = materialDef(game.grid.get(cursor.x, cursor.y));
-        cursorText = `cursor  ${cursor.x},${cursor.y}  ${m ? `${m.name} '${m.glyph}'` : '?'}`;
+        const life = game.grid.life[game.grid.index(cursor.x, cursor.y)] ?? 0;
+        cursorText = `cursor  ${cursor.x},${cursor.y}  ${m ? `${m.name} '${m.glyph}'` : '?'}${life ? `  life ${life}` : ''}`;
       }
       debug.draw([
         cursorText,
         `player  ${p.x.toFixed(2)},${p.y.toFixed(2)}`,
         `zoom    ${camera.zoom}x  cell ${camera.cellDevicePx(dpr)} dpx  dpr ${dpr}`,
         `tick    ${game.tick}  seed ${game.seed}  dropped ${loop.droppedSteps}`,
+        `chunks  ${game.sim.activeChunkCount}/${game.sim.chunkActive.length} simulated (outlined), ${renderer.chunksRedrawn} redrawn`,
       ]);
     }
 

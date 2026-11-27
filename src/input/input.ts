@@ -14,6 +14,8 @@ export class InputManager {
   mouseInside = false;
   /** Bitmask of held mouse buttons (1 = left, 2 = right, 4 = middle). */
   mouseButtons = 0;
+  /** Wheel notches since the last frame (positive = scrolled down / toward the user). */
+  wheel = 0;
   private readonly cleanup: Array<() => void> = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -40,6 +42,12 @@ export class InputManager {
     this.on(canvas, 'pointerleave', () => {
       this.mouseInside = false;
     });
+    const onWheel = (e: WheelEvent): void => {
+      e.preventDefault();
+      this.wheel += Math.sign(e.deltaY);
+    };
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    this.cleanup.push(() => canvas.removeEventListener('wheel', onWheel));
     // Right click is the harvest button (M3); never open the context menu over the game.
     this.on(canvas, 'contextmenu', (e: Event) => e.preventDefault());
   }
@@ -74,6 +82,7 @@ export class InputManager {
   /** Call once at the end of each rendered frame. */
   endFrame(): void {
     this.pressed.clear();
+    this.wheel = 0;
   }
 
   dispose(): void {

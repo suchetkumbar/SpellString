@@ -1,0 +1,66 @@
+import { describe, expect, it } from 'vitest';
+import { Grid } from '../../src/core/grid';
+import { Rng } from '../../src/core/rng';
+import { Simulation } from '../../src/core/sim';
+import { MAT } from '../../src/data/materials';
+
+/**
+ * Headless performance check on a busy 256x144 world. Logs the average tick
+ * time; fails only on a large regression (the in-game budget is 4 ms/tick and
+ * is watched in the F3 overlay).
+ */
+function busyWorld(seed: number): Simulation {
+  const W = 256;
+  const H = 144;
+  const g = new Grid(W, H, seed);
+  const rng = new Rng(seed);
+  // Rock shell with shelves, then random blobs of every material.
+  for (let x = 0; x < W; x++) {
+    g.set(x, 0, MAT.rock);
+    g.set(x, H - 1, MAT.rock);
+  }
+  for (let y = 0; y < H; y++) {
+    g.set(0, y, MAT.rock);
+    g.set(W - 1, y, MAT.rock);
+  }
+  for (let s = 0; s < 14; s++) {
+    const y = 12 + s * 9;
+    const x0 = rng.int(W - 60);
+    for (let x = x0; x < x0 + 40 + rng.int(20); x++) g.set(x, y, s % 3 === 0 ? MAT.wood : MAT.rock);
+  }
+  const mats = [MAT.sand, MAT.water, MAT.oil, MAT.water, MAT.sand, MAT.steam, MAT.fire, MAT.wood];
+  for (let b = 0; b < 120; b++) {
+    const m = mats[b % mats.length]!;
+    const cx = 2 + rng.int(W - 4);
+    const cy = 2 + rng.int(H - 4);
+    const r = 3 + rng.int(6);
+    for (let y = cy - r; y <= cy + r; y++) {
+      for (let x = cx - r; x <= cx + r; x++) {
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r && g.get(x, y) === MAT.empty) g.set(x, y, m);
+      }
+    }
+  }
+  return new Simulation(g, seed);
+}
+
+describe('simulation performance', () => {
+  it('a busy 256x144 world ticks well within a generous threshold', () => {
+    const sim = busyWorld(3);
+    for (let t = 0; t < 30; t++) sim.step(); // warm up the JIT
+    const ticks = 300;
+    const start = performance.now();
+    let activeSum = 0;
+    for (let t = 0; t < ticks; t++) {
+      sim.step();
+      activeSum += sim.activeChunkCount;
+    }
+    const avg = (performance.now() - start) / ticks;
+    const chunks = sim.chunkActive.length;
+    console.log(
+      `[perf] busy 256x144: ${avg.toFixed(3)} ms/tick avg over ${ticks} ticks, ` +
+        `${(activeSum / ticks).toFixed(0)}/${chunks} chunks active on average`,
+    );
+    // Budget in game is 4 ms. 25 ms only catches large regressions on slow CI machines.
+    expect(avg).toBeLessThan(25);
+  });
+});

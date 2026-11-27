@@ -40,3 +40,31 @@ test('F3 toggles the debug overlay', async ({ page }) => {
   await expect(overlay).toContainText('fps');
   await expect(overlay).toContainText('sim');
 });
+
+test('Lab mode: L opens the panel, painting and lab keys raise no errors', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  page.on('pageerror', (err) => errors.push(err.message));
+  await page.goto('/');
+  await page.waitForTimeout(300);
+  const lab = page.locator('#lab');
+  await expect(lab).toBeHidden();
+  await page.keyboard.press('KeyL');
+  await expect(lab).toBeVisible();
+  await expect(lab).toContainText('sand');
+
+  await page.keyboard.press('Digit3'); // water
+  await page.mouse.move(400, 200);
+  await page.mouse.down();
+  await page.mouse.move(500, 220, { steps: 5 });
+  await page.mouse.up();
+  await page.mouse.wheel(0, -300);
+  await page.keyboard.press('KeyP');
+  await expect(lab).toContainText('PAUSED');
+  await page.keyboard.press('KeyN');
+  await page.keyboard.press('KeyC');
+  await page.waitForTimeout(300);
+  expect(errors).toEqual([]);
+});

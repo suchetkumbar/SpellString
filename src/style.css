@@ -10,3 +10,12 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); 
 .overlay { position: absolute; margin: 0; font-family: var(--font); font-size: 12px; line-height: 1.4; pointer-events: none; }
 .debug { top: 8px; left: 8px; padding: 6px 8px; background: rgba(5, 5, 7, 0.78); border: 1px solid #2a2d38; white-space: pre; }
 .hint { bottom: 8px; left: 10px; opacity: 0.55; }
+.lab { top: 8px; right: 8px; padding: 8px 10px; background: rgba(5, 5, 7, 0.82); border: 1px solid #2a2d38; max-width: 560px; }
+.lab-title { font-weight: 700; letter-spacing: 0.2em; color: #9be22d; margin-bottom: 4px; }
+.lab-palette { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.lab-swatch { padding: 1px 4px; border: 1px solid transparent; opacity: 0.7; }
+.lab-swatch b { color: #8a8f9c; font-weight: 400; }
+.lab-swatch span { font-weight: 700; }
+.lab-swatch.selected { border-color: #cfd8e3; opacity: 1; }
+.lab-status { margin-top: 4px; color: #ffd23f; }
+.lab-help { margin-top: 2px; opacity: 0.6; font-size: 11px; }

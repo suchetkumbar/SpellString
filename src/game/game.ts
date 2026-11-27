@@ -1,6 +1,7 @@
 import { Rng } from '../core/rng';
 import type { Grid } from '../core/grid';
 import { loadAsciiLevel } from '../core/level';
+import { Simulation } from '../core/sim';
 import { TUNING } from '../data/tuning';
 
 /** Per-tick input, already reduced from raw devices. Keeps game logic device-agnostic and replayable. */
@@ -26,6 +27,7 @@ export class Game {
   tick = 0;
   readonly rng: Rng;
   readonly player: Player;
+  readonly sim: Simulation;
 
   constructor(
     readonly grid: Grid,
@@ -33,6 +35,8 @@ export class Game {
     readonly seed: number,
   ) {
     this.rng = new Rng(seed);
+    // The world gets its own stream so player/creature randomness never perturbs the chemistry.
+    this.sim = new Simulation(grid, this.rng.fork(1).nextU32());
     const x = spawn.x + 0.5;
     const y = spawn.y + 0.5;
     this.player = { x, y, prevX: x, prevY: y };
@@ -43,8 +47,9 @@ export class Game {
     return new Game(grid, spawn, seed);
   }
 
-  /** Advance one fixed tick. */
-  step(input: TickInput): void {
+  /** Advance one fixed tick. `simulateWorld: false` freezes the materials (Lab pause) but not the player. */
+  step(input: TickInput, simulateWorld = true): void {
+    if (simulateWorld) this.sim.step();
     const p = this.player;
     p.prevX = p.x;
     p.prevY = p.y;

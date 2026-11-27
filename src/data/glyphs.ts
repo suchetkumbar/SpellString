@@ -20,4 +20,6 @@ export const COLORS = {
   outside: '#050507',
   /** Hover outline around the cell under the cursor. */
   cursor: 'rgba(246, 240, 255, 0.35)',
+  /** F3: outline of simulation chunks that are awake. */
+  debugChunk: 'rgba(120, 255, 160, 0.18)',
 } as const;
