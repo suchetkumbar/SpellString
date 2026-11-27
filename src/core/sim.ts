@@ -23,6 +23,7 @@ import { TUNING } from '../data/tuning';
 
 const UPDATED = 1;
 const EMPTY = 0;
+const FIRE = matId('fire');
 
 // 4-neighborhood offsets: up, right, down, left.
 const NX = [0, 1, 0, -1] as const;
@@ -126,6 +127,26 @@ export class Simulation {
   /** Flag the chunk holding (x, y) as visually changed. */
   markDirty(x: number, y: number): void {
     this.chunkDirty[(y >> this.chunkShift) * this.chunksX + (x >> this.chunkShift)] = 1;
+  }
+
+  /**
+   * Something burning (a creature, the witch) touches cell (x, y): apply the
+   * cell's fire contact reaction (fire + X) as if a fire cell were there, with
+   * its chance scaled. Returns true if the cell changed.
+   */
+  exposeToFire(x: number, y: number, chanceScale: number): boolean {
+    const g = this.grid;
+    if (!g.inBounds(x, y)) return false;
+    const i = g.index(x, y);
+    const m = g.mat[i] as number;
+    if (m >= MAX_MATERIALS) return false;
+    const r = contactIndex[FIRE * MAX_MATERIALS + m] as number;
+    if (r < 0) return false;
+    const R = CONTACTS[r]!;
+    if (R.bTo === undefined || this.rng.next() >= R.chance * chanceScale) return false;
+    this.setCell(i, x, y, matId(R.bTo), R.bLife);
+    this.count(contactGlobal[r]!, x, y);
+    return true;
   }
 
   /** Clear the whole grid to empty. */

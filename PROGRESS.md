@@ -1,5 +1,102 @@
 # Spellstring: progress log
 
+## M3: The witch (done)
+
+### What changed
+- **Physics body** (`src/game/body.ts`): a reusable box with a continuous position; creatures will use it in M5.
+  - Rock, wood and powders are solid. Out of bounds counts as solid.
+  - Moves are swept per axis in substeps of at most 0.2 cells, and a blocked substep snaps flush to the blocking cell's edge. Very large moves are clamped, never coarsened, so nothing tunnels at any speed.
+  - The body steps up ledges up to 1 cell high automatically while walking or swimming.
+  - Powder the body is already inside (it was buried) is ignored for collision, so the witch can wriggle out. Powder she hasn't entered yet is still solid.
+- **The witch** (`src/game/player.ts`):
+  - Walking has separate acceleration on the ground and in the air.
+  - Jumping has coyote time (counted in airborne ticks since last on the ground), a jump buffer, and variable height: releasing jump while rising cuts upward speed by 55%.
+  - Swimming applies when her center is in any liquid. She sinks slowly; W/Space swims up and S swims down; she moves slower sideways. A fresh jump press with her head above the surface leaps out.
+  - HP 100. Mana 100, regenerating 20/s; casting arrives in M4.
+- **Statuses:**
+  - **Burning:** caused by touching fire cells. It deals 9/s and lasts 3 s after the last contact; standing in fire adds 14/s. **Water in contact puts burning out immediately.** While burning, she can set oil and wood she touches alight, using that material's fire reaction at half its chance (the new `Simulation.exposeToFire`).
+  - **Scalded:** steam deals 16/s.
+  - **Buried:** any powder overlapping her slows her to 35%. With powder over her head for more than 1 s, she suffocates at 12/s.
+- **Death and restart:** death is instant, records what killed her (`killed by: ^ (burning)`) and freezes her. Press **R** or Enter to restart the room immediately with the next seed.
+- **Harvesting** (`src/game/harvest.ts`), by holding right click:
+  - It locks onto the material under the cursor and pulls cells of that material within 2.5 cells of the cursor. The cursor is pulled back to within 12 cells of the witch.
+  - She needs line of sight to each cell (`src/game/los.ts`, reusable for creature senses).
+  - Liquids, powders and gases come off the top, so a pool drains like drinking. Solids dig from the side nearest the witch.
+  - Rates come from each material's new `harvestRate` (cells/s): fire 45, water 40, sand/oil/steam/smoke 30, wood 5, rock 2.5.
+  - Each cell flies to the witch as a glyph particle that homes in, and becomes a charge when it arrives.
+  - **Pouch:** each material is capped at 50 charges, and charges still in flight count toward the cap. When a material is full, the HUD says FULL and the ring turns red.
+- **Input:**
+  - `TickInput` (`src/game/input.ts`) now carries moving, jump pressed and held, aim in world cells, and harvest.
+  - A jump press is held until a simulation tick uses it, so presses in frames that run no ticks aren't lost.
+  - `InputManager.mouseWorld()` gives the mouse in fractional world cells.
+- **HUD** (`src/ui/hud.ts`): text HP and MP bars, status tags (BURNING, SCALDED, BURIED · SUFFOCATING, SWIMMING), and the pouch, with each glyph in its material color. There's also a death card.
+- **Rendering:**
+  - The witch's `@` turns orange (flickering) while burning, pink when scalded, red the tick she's hurt, and grey when dead.
+  - Harvest particles are drawn as glyphs, and the harvest area as a dashed ring.
+  - The camera leads slightly in her direction of travel.
+- **Debug hook:** `window.spellstring` exposes `game`, `view` and `dpr` read-only. Playwright uses it now, and the M10 bot test will too.
+
+### How to try it
+- Run `npm run dev`.
+- Walk with A/D and jump with W, Space or ↑. Tap for a short hop and hold for a full jump.
+- Drop into the left basin and swim: W up, S down, and a fresh jump at the surface leaps out.
+- Hold right click on the water to drain it, and watch the `~` glyphs fly to you.
+- Dig into rock (slowly) or wood with right click.
+- Walk into the burning scaffold to catch fire, then jump into water to put yourself out.
+- Burn to death, then press R.
+
+### Tests (83 unit, 4 e2e)
+- **No tunneling:** moves of up to 10^9 cells stop flush against a 1-cell wall from either side. A 10,000-cell fall lands on a 1-cell floor. A diagonal dash never ends inside rock. A witch pushed at 10× the speed cap for 2 s never passes a wall.
+- **Movement:** standing on the floor, walking speed, full jump height matching v²/2g (±0.5), a tap jump under half that, coyote time (the last allowed tick works, the next doesn't), the jump buffer, stepping up a 1-cell ledge but not a 2-cell wall, and the full swim cycle.
+- **Statuses:**
+  - Fire sets her burning and **walking into water puts it out**. Burning damage is exact.
+  - A burning witch ignites oil, and steam scalds.
+  - Sand buries and then suffocates her, and she can dig out by harvesting the sand.
+  - Death records its cause, and mana regenerates.
+- **Harvesting:**
+  - **20 water cells become exactly 20 charges** with nothing left in flight, and **an 80-cell pool stops at the 50 cap, leaving 30 in the world.**
+  - Pools drain from the top, and rock digs slowly from the near face (2–3 cells in 2 s).
+  - Nothing is harvested through a wall or beyond reach, and harvesting is deterministic.
+- **Playwright:** the witch walks, jumps, digs (gaining charges), dies, shows the death card and restarts in under 3 s, with no console errors.
+
+### Feel decisions to review
+- **Hitbox** is 0.75 × 0.9 cells, so she fits 1-cell tunnels. She **steps up 1-cell ledges automatically**, because without it bumpy cave floors snag every few steps.
+- **Movement numbers:**
+  - Walking: 10 cells/s, with ground acceleration 110 and air acceleration 60.
+  - Gravity: 70, with terminal fall speed 32.
+  - Jumping: launch speed 25.5 (about 4.6 cells high), jump cut 0.45, 6 ticks of coyote time and a 7-tick jump buffer.
+  - There's no fall damage.
+- **Swimming:** idle sinking is slow (2.5 cells/s), swimming is 6.5 cells/s, sideways speed is 60%, and a fresh jump at the surface leaps out at 80% power. W does double duty as jump and swim-up, per the spec.
+- **Harvesting:**
+  - The radius is 2.5 cells around the cursor and the reach is 12 cells. She needs line of sight, so she can't drain a pool through a wall.
+  - The material locks while the button is held, so a cell draining away doesn't drop the lock.
+  - Charges count only when they arrive, after about 0.2–0.5 s of flight.
+- **Damage:**
+  - Burning: 9/s for 3 s after contact, plus 14/s while standing in fire.
+  - Steam: 16/s.
+  - Buried: she slows to 35%, and suffocates at 12/s after 1 s with sand over her head.
+  - All of these sit in `tuning.ts`.
+- **Restart** happens on R or Enter, not automatically, so you can read what killed you.
+- **Camera lead** is 0.18 s of velocity horizontally (half that vertically).
+
+### Ambiguities resolved
+- **"Settled powders" block the player:** all powders are solid to her, except powder already inside her hitbox.
+- **Swimming covers any liquid**, oil included. Only water puts out burning; oil doesn't, and a burning witch in oil will light it.
+- **Charges arrive by flight.** They're added when the glyph reaches her, and in-flight glyphs count toward the cap so you can never exceed it.
+- **Gold → wallet** is deferred to M7, since gold arrives then.
+- **R restarts** the room with the next seed. The real run flow (title → run → death screen) comes in M6.
+
+### Known issues
+- The HUD panel covers a strip in the bottom-left of the view. It may move in the M9 UI pass.
+- The HUD pouch shows arrived charges only; there's no in-flight counter.
+- Harvest particles use the material's brightest shade, which can blend in when flying over the same material.
+- Left click does nothing outside Lab until spells arrive in M4.
+
+### Dependencies
+No new dependencies.
+
+---
+
 ## M2: The living world (done)
 
 ### What changed

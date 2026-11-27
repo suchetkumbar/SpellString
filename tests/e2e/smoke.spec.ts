@@ -68,3 +68,56 @@ test('Lab mode: L opens the panel, painting and lab keys raise no errors', async
   await page.waitForTimeout(300);
   expect(errors).toEqual([]);
 });
+
+test('the witch walks and jumps, harvests, dies and restarts', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  await page.goto('/');
+  await page.waitForFunction(() => window.spellstring?.game.player.body.grounded === true);
+  const x0 = await page.evaluate(() => window.spellstring!.game.player.x);
+  await page.keyboard.down('KeyD');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(150);
+  const midJump = await page.evaluate(() => window.spellstring!.game.player.body.grounded);
+  await page.keyboard.up('KeyD');
+  expect(midJump).toBe(false);
+  expect(await page.evaluate(() => window.spellstring!.game.player.x)).toBeGreaterThan(x0 + 2);
+
+  // Harvest: hold right click on the ledge the witch stands on (rock digs slowly).
+  await page.waitForTimeout(600);
+  const target = await page.evaluate(() => {
+    const s = window.spellstring!;
+    const p = s.game.player;
+    const v = s.view!;
+    const wx = p.x;
+    const wy = p.y + 1.2; // the cell under her feet
+    return { x: (v.originX + wx * v.cell) / s.dpr, y: (v.originY + wy * v.cell) / s.dpr };
+  });
+  const box = (await page.locator('#game').boundingBox())!;
+  await page.mouse.move(box.x + target.x, box.y + target.y);
+  await page.mouse.down({ button: 'right' });
+  await page.waitForTimeout(1500);
+  await page.mouse.up({ button: 'right' });
+  await page.waitForTimeout(800);
+  const charges = await page.evaluate(() => Array.from(window.spellstring!.game.pouch.counts).reduce((a, b) => a + b, 0));
+  expect(charges, `harvest near ${JSON.stringify(target)}`).toBeGreaterThan(0);
+  await expect(page.locator('#hud')).toContainText('HP');
+
+  // Death and instant restart.
+  await page.evaluate(() => {
+    window.spellstring!.game.player.burning = 1_000_000;
+    window.spellstring!.game.player.hp = 1;
+  });
+  await expect(page.locator('#death')).toBeVisible();
+  await expect(page.locator('#death')).toContainText('killed by: ^');
+  const t0 = Date.now();
+  await page.keyboard.press('KeyR');
+  await expect(page.locator('#death')).toBeHidden();
+  expect(Date.now() - t0).toBeLessThan(3000);
+  expect(await page.evaluate(() => window.spellstring!.game.player.dead)).toBe(false);
+  expect(errors).toEqual([]);
+});

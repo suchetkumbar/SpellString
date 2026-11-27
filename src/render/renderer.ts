@@ -31,6 +31,8 @@ export interface RenderFrame {
   readonly cursor: { readonly x: number; readonly y: number } | null;
   /** Wall-clock ms, for cosmetic animation (shimmer, flicker). */
   readonly timeMs: number;
+  /** Harvest area while harvesting: center and radius in cells. */
+  readonly harvestRing?: { readonly x: number; readonly y: number; readonly radius: number; readonly full: boolean } | undefined;
   /** Lab brush radius in cells, drawn around the cursor (0 or absent = none). */
   readonly brushRadius?: number;
 

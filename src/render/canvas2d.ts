@@ -156,6 +156,17 @@ export class Canvas2DRenderer implements Renderer {
       ctx.strokeRect(ox + frame.cursor.x * cell + lw / 2, oy + frame.cursor.y * cell + lw / 2, cell - lw, cell - lw);
     }
 
+    if (frame.harvestRing) {
+      const h = frame.harvestRing;
+      ctx.strokeStyle = h.full ? COLORS.harvestRingFull : COLORS.harvestRing;
+      ctx.lineWidth = lw;
+      ctx.setLineDash([lw * 3, lw * 3]);
+      ctx.beginPath();
+      ctx.arc(ox + h.x * cell, oy + h.y * cell, h.radius * cell, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     // Entities draw on top of the world. Snap to whole device pixels to stay crisp.
     for (const e of frame.entities) {
       const st = e.style;

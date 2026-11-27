@@ -5,11 +5,19 @@ import { Game, type TickInput } from './game/game';
 import { TUNING } from './data/tuning';
 import { materialDef } from './data/materials';
 import { InputManager } from './input/input';
-import { Camera } from './render/camera';
+import { Camera, type ViewTransform } from './render/camera';
 import { Canvas2DRenderer } from './render/canvas2d';
 import { buildStyleTable } from './render/styles';
 import { DebugOverlay } from './ui/debugOverlay';
 import { Lab } from './ui/lab';
+import { Hud } from './ui/hud';
+import type { RenderEntity } from './render/renderer';
+
+declare global {
+  interface Window {
+    spellstring?: { readonly game: Game; readonly view: ViewTransform | null; readonly dpr: number };
+  }
+}
 
 const FONT_FAMILY = '"JetBrains Mono", ui-monospace, monospace';
 const DEFAULT_SEED = 1;
@@ -50,8 +58,17 @@ async function boot(): Promise<void> {
   const renderer = new Canvas2DRenderer(canvas, styles, FONT_FAMILY);
   const camera = new Camera();
   const loop = new FixedStep(TUNING.simHz, TUNING.maxCatchUpSteps);
-  const game = Game.fromAscii(testRoom, DEFAULT_SEED);
+  const hud = new Hud(el('hud'), el('death'));
+  let seed = DEFAULT_SEED;
+  let game = Game.fromAscii(testRoom, seed);
   camera.snapTo(game.player.x, game.player.y);
+  /** Instant restart: a fresh copy of the room, next seed. */
+  const restart = (): void => {
+    seed++;
+    game = Game.fromAscii(testRoom, seed);
+    camera.snapTo(game.player.x, game.player.y);
+    loop.reset();
+  };
 
   // Keep the backing store exactly device-pixel sized so glyphs stay crisp.
   let deviceW = 0;
@@ -81,10 +98,40 @@ async function boot(): Promise<void> {
   deviceH = Math.round(canvas.clientHeight * dpr);
   applySize();
 
-  const readTickInput = (): TickInput => ({
-    moveX: input.axis('left', 'right'),
-    moveY: input.axis('up', 'down'),
-  });
+  // Jump presses are latched until a tick consumes them, so a press in a frame
+  // that runs zero ticks is never lost.
+  let jumpLatch = false;
+  let aimX = 0;
+  let aimY = 0;
+  const readTickInput = (): TickInput => {
+    const mouse = input.mouseWorld(renderer.view, dpr);
+    if (mouse) {
+      aimX = mouse.x;
+      aimY = mouse.y;
+    }
+    return {
+      moveX: input.axis('left', 'right'),
+      moveY: input.action('down') ? 1 : 0,
+      jumpPressed: jumpLatch,
+      jumpHeld: input.action('jump'),
+      aimX,
+      aimY,
+      harvest: !lab.enabled && (input.mouseButtons & 2) !== 0,
+    };
+  };
+
+  // Read-only debug/test hook (used by Playwright tests and the M10 bot).
+  window.spellstring = {
+    get game() {
+      return game;
+    },
+    get view() {
+      return renderer.view;
+    },
+    get dpr() {
+      return dpr;
+    },
+  };
 
   let last = performance.now();
   let lastDebugDraw = 0;
@@ -109,12 +156,17 @@ async function boot(): Promise<void> {
     // Lab edits apply between ticks, using last frame's view for the mouse cell.
     const labSteps = lab.update(input, game.sim, input.mouseCell(renderer.view, dpr));
 
+    if (game.player.dead && input.actionPressed('restart')) restart();
+    if (input.actionPressed('jump')) jumpLatch = true;
+
     // Fixed-timestep simulation.
     const steps = loop.advance(dt);
     const simStart = performance.now();
-    const tickInput = readTickInput();
     const simulateWorld = !(lab.enabled && lab.paused);
-    for (let i = 0; i < steps; i++) game.step(tickInput, simulateWorld);
+    for (let i = 0; i < steps; i++) {
+      game.step(readTickInput(), simulateWorld);
+      jumpLatch = false;
+    }
     for (let i = 0; i < labSteps; i++) game.sim.step();
     const simMs = performance.now() - simStart;
 
@@ -123,14 +175,37 @@ async function boot(): Promise<void> {
     const p = game.player;
     const px = p.prevX + (p.x - p.prevX) * a;
     const py = p.prevY + (p.y - p.prevY) * a;
-    camera.follow(px, py, dt / 1000);
+    const lead = TUNING.cameraLeadSeconds;
+    camera.follow(px + p.body.vx * lead, py + p.body.vy * lead * 0.5, dt / 1000);
+
+    const entities: RenderEntity[] = [];
+    for (const g of game.harvester.particles) {
+      entities.push({
+        style: (styles.materialFirst[g.material] as number) + styles.shades - 1,
+        x: g.prevX + (g.x - g.prevX) * a,
+        y: g.prevY + (g.y - g.prevY) * a,
+      });
+    }
+    const e = styles.entity;
+    const look = p.dead
+      ? e.playerDead
+      : p.burning > 0 && (now >> 6) % 2 === 0
+        ? e.playerBurning
+        : p.scalded > 0
+          ? e.playerScalded
+          : p.hurtThisTick > 0
+            ? e.playerHurt
+            : e.player;
+    entities.push({ style: look, x: px, y: py });
+    const h = game.harvester;
 
     const renderStart = performance.now();
     const cursor = input.mouseCell(renderer.view, dpr);
     renderer.render({
       grid: game.grid,
       camera,
-      entities: [{ style: styles.entity.player, x: px, y: py }],
+      entities,
+      harvestRing: h.active ? { x: h.centerX, y: h.centerY, radius: TUNING.harvestRadius, full: h.full } : undefined,
       cursor,
       timeMs: now,
       brushRadius: lab.enabled ? lab.brush : 0,
@@ -143,6 +218,7 @@ async function boot(): Promise<void> {
       showActiveChunks: debug.visible,
     });
     const renderMs = performance.now() - renderStart;
+    hud.update(game);
 
     debug.record(now, dt, steps + labSteps, simMs, renderMs);
     if (now - lastDebugDraw >= TUNING.debugRefreshMs) {
@@ -155,7 +231,7 @@ async function boot(): Promise<void> {
       }
       debug.draw([
         cursorText,
-        `player  ${p.x.toFixed(2)},${p.y.toFixed(2)}`,
+        `player  ${p.x.toFixed(2)},${p.y.toFixed(2)}  v ${p.body.vx.toFixed(1)},${p.body.vy.toFixed(1)}${p.body.grounded ? '  grounded' : ''}`,
         `zoom    ${camera.zoom}x  cell ${camera.cellDevicePx(dpr)} dpx  dpr ${dpr}`,
         `tick    ${game.tick}  seed ${game.seed}  dropped ${loop.droppedSteps}`,
         `chunks  ${game.sim.activeChunkCount}/${game.sim.chunkActive.length} simulated (outlined), ${renderer.chunksRedrawn} redrawn`,

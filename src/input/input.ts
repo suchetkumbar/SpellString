@@ -79,6 +79,12 @@ export class InputManager {
     return screenToCell(view, this.mouseX * dpr, this.mouseY * dpr);
   }
 
+  /** The mouse in world cell units (fractional), or null if the mouse is off the canvas. */
+  mouseWorld(view: ViewTransform | null, dpr: number): { x: number; y: number } | null {
+    if (!view || !this.mouseInside) return null;
+    return { x: (this.mouseX * dpr - view.originX) / view.cell, y: (this.mouseY * dpr - view.originY) / view.cell };
+  }
+
   /** Call once at the end of each rendered frame. */
   endFrame(): void {
     this.pressed.clear();

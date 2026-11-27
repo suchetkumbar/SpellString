@@ -4,8 +4,12 @@ import type { MaterialKey } from './materials';
 export const CONTROLS = {
   left: ['KeyA', 'ArrowLeft'],
   right: ['KeyD', 'ArrowRight'],
-  up: ['KeyW', 'ArrowUp', 'Space'],
+  /** Jump; also swims up in liquid. */
+  jump: ['KeyW', 'ArrowUp', 'Space'],
+  /** Swims down in liquid. */
   down: ['KeyS', 'ArrowDown'],
+  /** After death: start again. */
+  restart: ['KeyR', 'Enter'],
   zoomIn: ['Equal', 'NumpadAdd'],
   zoomOut: ['Minus', 'NumpadSubtract'],
   debug: ['F3'],

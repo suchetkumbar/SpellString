@@ -6,6 +6,10 @@ export interface EntityGlyphDef {
 
 export const ENTITY_GLYPHS = {
   player: { glyph: '@', color: '#f6f0ff' },
+  playerBurning: { glyph: '@', color: '#ff9a1f' },
+  playerScalded: { glyph: '@', color: '#ff8fb1' },
+  playerHurt: { glyph: '@', color: '#ff4d4d' },
+  playerDead: { glyph: '@', color: '#5c5c66' },
 } as const satisfies Record<string, EntityGlyphDef>;
 
 export type EntityGlyphKey = keyof typeof ENTITY_GLYPHS;
@@ -22,4 +26,8 @@ export const COLORS = {
   cursor: 'rgba(246, 240, 255, 0.35)',
   /** F3: outline of simulation chunks that are awake. */
   debugChunk: 'rgba(120, 255, 160, 0.18)',
+  /** Harvest area ring while right click is held. */
+  harvestRing: 'rgba(155, 226, 45, 0.55)',
+  /** Harvest ring when the pouch is full for that material. */
+  harvestRingFull: 'rgba(255, 77, 77, 0.7)',
 } as const;
