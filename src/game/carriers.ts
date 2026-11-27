@@ -170,6 +170,7 @@ export class Carriers {
         const liquid = behaviorOf[m] === BEH.liquid;
         if (liquid && !c.inLiquid) {
           hitWorld = true; // splash down on the surface
+          ctx.emit({ kind: 'splash', x: nx, y: ny });
           break;
         }
         c.inLiquid = liquid;
@@ -285,6 +286,8 @@ export class Carriers {
   }
 
   private burst(ctx: GameContext, c: Carrier): void {
+    ctx.emit({ kind: 'impact', x: c.x, y: c.y, materials: c.payload, kinetic: c.kinetic });
+    ctx.effects.debris(c.x, c.y, c.payload, ctx.rng);
     if (c.payload.length > 0) {
       releaseBurst(ctx.grid, ctx.sim, c.x, c.y, c.payload, c.perGlyph, ctx.rng);
       if (c.owner === null) ctx.noteOwnBurst(c.x, c.y, c.payload);

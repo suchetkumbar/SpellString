@@ -326,3 +326,73 @@ test('the Codex: discoveries show a banner and survive a page reload', async ({ 
   await expect(screen).toContainText('new run');
   expect(errors).toEqual([]);
 });
+
+test('settings: changed on the settings screen, they survive a reload', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') errors.push(msg.text());
+  });
+  await page.goto('/');
+  const screen = page.locator('#screen');
+  await expect(screen).toContainText('settings');
+  await page.keyboard.press('KeyS');
+  await expect(screen).toContainText('SETTINGS');
+  await page.locator('[data-setting="shake"]').click();
+  await page.locator('[data-setting="reduceFlashing"]').click();
+  // Rebind jump to K.
+  await page.locator('.settings-row', { hasText: 'jump / swim up' }).locator('button').click();
+  await expect(screen).toContainText('press a key');
+  await page.keyboard.press('KeyK');
+  await expect(page.locator('.settings-row', { hasText: 'jump / swim up' })).toContainText('KeyK');
+
+  await page.goto('/'); // a fresh page load
+  const s = await page.evaluate(() => window.spellstring!.settings.data);
+  expect(s.shake).toBe(false);
+  expect(s.reduceFlashing).toBe(true);
+  expect(s.keys.jump?.[0]).toBe('KeyK');
+  await expect(screen).toContainText('new run'); // the title is up before we press anything
+  await page.keyboard.press('KeyS');
+  await expect(page.locator('[data-setting="shake"]')).toContainText('off');
+  await page.keyboard.press('Escape');
+  await expect(screen).toContainText('new run');
+  expect(errors).toEqual([]);
+});
+
+test('gamepad: A starts a run, the left stick walks, the right trigger casts (stubbed pad)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  await page.addInitScript(() => {
+    const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0, touched: false }));
+    const pad = { id: 'stub', index: 0, connected: true, mapping: 'standard', timestamp: 0, axes: [0, 0, 0, 0], buttons };
+    (window as unknown as { __pad: typeof pad }).__pad = pad;
+    Object.defineProperty(navigator, 'getGamepads', { value: () => [pad] });
+  });
+  type Pad = { buttons: { pressed: boolean; value: number }[]; axes: number[] };
+  const press = (i: number, down: boolean) =>
+    page.evaluate(([i, down]) => {
+      const p = (window as unknown as { __pad: Pad }).__pad;
+      p.buttons[i as number] = { pressed: down as boolean, value: down ? 1 : 0 };
+    }, [i, down] as const);
+  await page.goto('/');
+  await expect(page.locator('#screen')).toContainText('new run');
+  await press(0, true); // A
+  await page.waitForFunction(() => window.spellstring?.run !== null && window.spellstring?.screen === null);
+  await press(0, false);
+  await page.waitForFunction(() => window.spellstring?.game?.player.body.grounded === true);
+  const x0 = await page.evaluate(() => window.spellstring!.game!.player.x);
+  await page.evaluate(() => {
+    (window as unknown as { __pad: Pad }).__pad.axes[0] = 1;
+  });
+  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    (window as unknown as { __pad: Pad }).__pad.axes[0] = 0;
+  });
+  expect(await page.evaluate(() => window.spellstring!.game!.player.x)).not.toBeCloseTo(x0, 0);
+  const mana = await page.evaluate(() => window.spellstring!.game!.wand.mana);
+  await press(7, true); // RT
+  await page.waitForTimeout(150);
+  await press(7, false);
+  expect(await page.evaluate(() => window.spellstring!.game!.wand.mana)).toBeLessThan(mana);
+  expect(errors).toEqual([]);
+});

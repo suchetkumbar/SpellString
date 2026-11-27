@@ -100,7 +100,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); 
 .shrine-card.wand .shrine-name { color: #6aa8ff; font-size: 16px; font-weight: 700; }
 .shrine-key { color: #ffd23f; }
 .shrine-text { opacity: 0.8; font-size: 12px; }
-.screen.screen-is-title { background: #050507; }
+.screen.screen-is-title { background: rgba(5, 5, 7, 0.68); }
 .hint[hidden] { display: none; }
 .hud-wand-row { white-space: pre; }
 .hud-wand-row:not(.active) { opacity: 0.5; }
@@ -120,3 +120,10 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); 
 .codex-unlock.open { color: #9be22d; }
 .codex-unlock.closed { opacity: 0.6; }
 .codex-run { opacity: 0.85; font-size: 12px; }
+.settings-row { display: flex; align-items: center; gap: 10px; padding: 1px 0; }
+.settings-label { min-width: 230px; opacity: 0.85; }
+.settings-value { min-width: 170px; color: #6aa8ff; }
+.settings-toggle.on { color: #9be22d; }
+.settings-key { min-width: 160px; color: #ffd23f; }
+#post { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#post[hidden] { display: none; }

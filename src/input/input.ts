@@ -1,6 +1,12 @@
 import { CONTROLS, PREVENT_DEFAULT_KEYS, type Action } from '../data/controls';
 import { screenToCell, type ViewTransform } from '../render/camera';
 
+/** Standard gamepad mapping: button index -> code. */
+const PAD_BUTTONS: readonly (string | null)[] = [
+  'PadA', 'PadB', 'PadX', 'PadY', 'PadLB', 'PadRB', 'PadLT', 'PadRT', 'PadBack', 'PadStart', null, null, 'PadUp', 'PadDown', 'PadLeft', 'PadRight',
+];
+const STICK_DEAD = 0.4;
+
 /**
  * Keyboard + mouse state. Held state is continuous; "pressed" edges are
  * collected between frames and cleared by endFrame().
@@ -65,12 +71,51 @@ export class InputManager {
     return this.pressed.has(code);
   }
 
+  /** Keys bound to an action: the settings' overrides, else the defaults. */
+  bindings: (a: Action) => readonly string[] = (a) => CONTROLS[a];
+
   action(a: Action): boolean {
-    return CONTROLS[a].some((c) => this.down.has(c));
+    return this.bindings(a).some((c) => this.down.has(c) || this.padDown.has(c));
   }
 
   actionPressed(a: Action): boolean {
-    return CONTROLS[a].some((c) => this.pressed.has(c));
+    return this.bindings(a).some((c) => this.pressed.has(c));
+  }
+
+  /** A gamepad is connected and was used. */
+  padActive = false;
+  /** Right-stick aim (-1..1 each axis), or null when the stick is at rest. */
+  padAim: { x: number; y: number } | null = null;
+  private readonly padDown = new Set<string>();
+
+  /**
+   * Read the first gamepad (standard mapping) once per frame. Buttons become
+   * Pad* codes, so bindings, menus and remapping all work the same way.
+   */
+  pollGamepad(): void {
+    const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
+    const pad = Array.from(pads ?? []).find((p) => p !== null) ?? null;
+    const now = new Set<string>();
+    this.padAim = null;
+    if (pad) {
+      const btn = (i: number): boolean => pad.buttons[i]?.pressed === true || (pad.buttons[i]?.value ?? 0) > 0.5;
+      PAD_BUTTONS.forEach((code, i) => {
+        if (code && btn(i)) now.add(code);
+      });
+      const lx = pad.axes[0] ?? 0;
+      const ly = pad.axes[1] ?? 0;
+      if (lx < -STICK_DEAD) now.add('PadLeft');
+      if (lx > STICK_DEAD) now.add('PadRight');
+      if (ly < -STICK_DEAD) now.add('PadUp');
+      if (ly > STICK_DEAD) now.add('PadDown');
+      const rx = pad.axes[2] ?? 0;
+      const ry = pad.axes[3] ?? 0;
+      if (Math.hypot(rx, ry) > 0.3) this.padAim = { x: rx, y: ry };
+      if (now.size > 0 || this.padAim) this.padActive = true;
+    }
+    for (const c of now) if (!this.padDown.has(c)) this.pressed.add(c);
+    this.padDown.clear();
+    for (const c of now) this.padDown.add(c);
   }
 
   /** -1, 0 or 1 from two opposing actions. */

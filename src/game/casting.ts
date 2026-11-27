@@ -92,6 +92,7 @@ export class Caster {
   fireCast(ctx: GameContext, cast: PlannedCast, ox: number, oy: number, angle: number, spell: string, fromWitch: boolean): void {
     const spread = (TUNING.splitSpreadDeg * Math.PI) / 180;
     const fizzled: number[] = [];
+    ctx.emit({ kind: 'cast', delivery: cast.delivery });
     for (let k = 0; k < cast.carriers; k++) {
       // 0, +1, -1, +2, -2 ... steps either side of the aim.
       const step = k === 0 ? 0 : Math.ceil(k / 2) * (k % 2 === 1 ? 1 : -1);
@@ -123,6 +124,7 @@ export class Caster {
     }
     for (const m of fizzled) {
       this.fizzledAt[m] = ctx.tick;
+      ctx.emit({ kind: 'fizzle' });
       ctx.effects.fizzle(ox, oy - 0.6, m, ctx.rng);
       const def = MATERIALS[m];
       ctx.say(`Fizzle: no \`${def?.glyph ?? '?'}\` charges (${def?.name ?? '?'}).`, 'fizzle');

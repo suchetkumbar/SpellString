@@ -8,6 +8,8 @@ export interface RenderEntity {
   /** Center in cell units. */
   readonly x: number;
   readonly y: number;
+  /** Draw smaller (impact debris): fraction of a cell. */
+  readonly scale?: number;
 }
 
 /** Text drawn over everything (damage numbers, telegraph marks), centered on (x, y) in cells. */
@@ -47,6 +49,12 @@ export interface RenderFrame {
   readonly brushRadius?: number;
   /** Floating text on top of everything. */
   readonly labels?: readonly RenderLabel[];
+  /** Glow around fire and acid. */
+  readonly glow?: boolean;
+  /** Explosion light: centre (cells), radius (cells), 'r, g, b' and alpha. */
+  readonly lights?: readonly { readonly x: number; readonly y: number; readonly r: number; readonly rgb: string; readonly alpha: number }[];
+  /** Full-screen flash alpha (explosions). */
+  readonly flash?: number;
 }
 
 /**

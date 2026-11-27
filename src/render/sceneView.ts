@@ -17,7 +17,7 @@ export interface SceneView {
  * `a` interpolates between the last two ticks; `now` is wall-clock ms for
  * cosmetic blinking.
  */
-export function sceneView(game: Game, styles: StyleTable, a: number, now: number): SceneView {
+export function sceneView(game: Game, styles: StyleTable, a: number, now: number, reduceFlashing = false): SceneView {
   const entities: RenderEntity[] = [];
   const labels: RenderLabel[] = [];
   const e = styles.entity;
@@ -27,7 +27,7 @@ export function sceneView(game: Game, styles: StyleTable, a: number, now: number
   const f = game.features;
   if (f.portal) {
     const cycle = [e.portalA, e.portalB, e.portalA, e.portalC];
-    entities.push({ style: cycle[Math.floor(now / 180) % cycle.length]!, x: f.portal.x + 0.5, y: f.portal.y + 0.5 });
+    entities.push({ style: reduceFlashing ? e.portalA : cycle[Math.floor(now / 180) % cycle.length]!, x: f.portal.x + 0.5, y: f.portal.y + 0.5 });
   }
   for (const c of f.chests) entities.push({ style: c.opened ? e.chestOpen : e.chest, x: c.x + 0.5, y: c.y + 0.5 });
   for (const v of f.vents) {
@@ -40,7 +40,7 @@ export function sceneView(game: Game, styles: StyleTable, a: number, now: number
     if (c.stuck) {
       // A mine lying in wait: its _ blinks, alternating with what it holds.
       const m = c.payload[0];
-      const showPayload = m !== undefined && Math.floor(now / 400) % 2 === 1;
+      const showPayload = m !== undefined && !reduceFlashing && Math.floor(now / 400) % 2 === 1;
       entities.push({ style: showPayload ? (styles.materialFirst[m] as number) + top : e.mine, x: cx, y: cy });
       continue;
     }
@@ -56,23 +56,29 @@ export function sceneView(game: Game, styles: StyleTable, a: number, now: number
     entities.push({ style, x: cx, y: cy });
   }
   for (const fx of game.effects.fx) {
+    const x = fx.prevX + (fx.x - fx.prevX) * a;
+    const y = fx.prevY + (fx.y - fx.prevY) * a;
+    if (fx.kind === 'debris') {
+      entities.push({ style: (styles.materialFirst[fx.material] as number) + top, x, y, scale: 0.5 });
+      continue;
+    }
     const style = fx.kind === 'fizzle' && fx.material > 0 ? (styles.materialGhost[fx.material] as number) : e.spark;
-    entities.push({ style, x: fx.prevX + (fx.x - fx.prevX) * a, y: fx.prevY + (fx.y - fx.prevY) * a });
+    entities.push({ style, x, y });
   }
   for (const g of game.harvester.particles) {
     entities.push({ style: (styles.materialFirst[g.material] as number) + top, x: g.prevX + (g.x - g.prevX) * a, y: g.prevY + (g.y - g.prevY) * a });
   }
-  creatureView(game, styles, a, entities, labels);
+  creatureView(game, styles, a, entities, labels, reduceFlashing);
 
   const p = game.player;
   const px = p.prevX + (p.x - p.prevX) * a;
   const py = p.prevY + (p.y - p.prevY) * a;
   // After a creature's blow lands she blinks through her i-frames.
-  const blink = !p.dead && p.invuln > 0 && (now >> 6) % 2 === 0;
+  const blink = !reduceFlashing && !p.dead && p.invuln > 0 && (now >> 6) % 2 === 0;
   const look =
     p.dead || blink
       ? e.playerDead
-      : p.burning > 0 && (now >> 6) % 2 === 0
+      : p.burning > 0 && (reduceFlashing || (now >> 6) % 2 === 0)
         ? e.playerBurning
         : p.scalded > 0
           ? e.playerScalded

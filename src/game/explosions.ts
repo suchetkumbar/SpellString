@@ -14,6 +14,7 @@ export function applyExplosions(ctx: GameContext): void {
   if (list.length === 0) return;
   for (const e of list.splice(0)) {
     const reach = e.r + 0.5;
+    ctx.emit({ kind: 'explode', x: e.x, y: e.y, r: e.r });
     const own = ctx.player.ownFire > 0;
     const p = ctx.player;
     if (!p.dead) {

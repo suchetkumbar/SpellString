@@ -3,8 +3,10 @@ import type { Run } from '../game/run';
 import { CODEX_ENTRIES, entryText, type Codex } from '../game/codex';
 import { UNLOCKS, type DiscoveryKind } from '../data/unlocks';
 import { appendRich } from './spellView';
+import type { Settings, SettingsData } from '../game/settings';
+import { REMAPPABLE, type Action } from '../data/controls';
 
-export type ScreenKind = 'title' | 'pause' | 'shrine' | 'death' | 'won' | 'codex';
+export type ScreenKind = 'title' | 'pause' | 'shrine' | 'death' | 'won' | 'codex' | 'settings';
 
 export interface ScreenActions {
   /** A descent; `seedText` may be blank (random). */
@@ -15,6 +17,9 @@ export interface ScreenActions {
   /** Open the Codex (Esc returns). */
   codex(): void;
   closeCodex(): void;
+  /** Open / close the settings screen. */
+  settings(): void;
+  closeSettings(): void;
   /** Pick the next unlocked starting wand. */
   cycleWand(): void;
   resume(): void;
@@ -52,6 +57,89 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: 
  */
 export class Screens {
   current: ScreenKind | null = null;
+  /** Bumped when the settings screen must redraw (a value changed). */
+  private revision = 0;
+  /** The action waiting for a key press to rebind, if any. */
+  rebinding: Action | null = null;
+
+  /** Redraw the current screen on the next show(). */
+  invalidate(): void {
+    this.revision++;
+  }
+
+  /** Settings: toggles, volume steps and key rebinding (mouse; Esc goes back). */
+  private buildSettings(): void {
+    const r = this.root;
+    const p = this.prefs;
+    const d = p.data;
+    el('div', 'screen-title', r, 'SETTINGS');
+    const panel = el('div', 'codex-panel settings-panel', r);
+    const row = (label: string): HTMLElement => {
+      const line = el('div', 'settings-row', panel);
+      el('span', 'settings-label', line, label);
+      return line;
+    };
+    const set = (patch: Partial<SettingsData>): void => {
+      p.update(patch);
+      this.invalidate();
+    };
+    const volume = (label: string, key: 'masterVolume' | 'sfxVolume' | 'ambientVolume'): void => {
+      const line = row(label);
+      const v = d[key];
+      const minus = el('button', 'screen-button', line, '−');
+      el('span', 'settings-value', line, `${'█'.repeat(Math.round(v * 10))}${'·'.repeat(10 - Math.round(v * 10))} ${Math.round(v * 100)}%`);
+      const plus = el('button', 'screen-button', line, '+');
+      minus.addEventListener('click', () => set({ [key]: Math.max(0, Math.round((v - 0.1) * 10) / 10) }));
+      plus.addEventListener('click', () => set({ [key]: Math.min(1, Math.round((v + 0.1) * 10) / 10) }));
+    };
+    const toggle = (label: string, key: 'shake' | 'hitStop' | 'crt' | 'glow' | 'highContrast' | 'reduceFlashing'): void => {
+      const line = row(label);
+      const b = el('button', `screen-button settings-toggle${d[key] ? ' on' : ''}`, line, d[key] ? '[x] on' : '[ ] off');
+      b.dataset.setting = key;
+      b.addEventListener('click', () => set({ [key]: !d[key] }));
+    };
+    el('div', 'codex-section', panel, 'Sound');
+    volume('master volume', 'masterVolume');
+    volume('effects', 'sfxVolume');
+    volume('ambience', 'ambientVolume');
+    el('div', 'codex-section', panel, 'Screen');
+    toggle('screen shake', 'shake');
+    toggle('hit-stop', 'hitStop');
+    toggle('CRT + bloom (WebGL)', 'crt');
+    toggle('glow on fire and acid', 'glow');
+    toggle('high-contrast palette', 'highContrast');
+    toggle('reduce flashing', 'reduceFlashing');
+    el('div', 'codex-section', panel, 'Keys (click to rebind, then press a key)');
+    for (const [action, label] of REMAPPABLE) {
+      const line = row(label);
+      const keys = p.keysFor(action).filter((c) => !c.startsWith('Pad'));
+      const b = el('button', 'screen-button settings-key', line, this.rebinding === action ? 'press a key…' : keys.join(' / ') || '(none)');
+      b.addEventListener('click', () => this.startRebind(action));
+    }
+    const reset = el('button', 'screen-button', panel, 'reset keys to defaults');
+    reset.addEventListener('click', () => {
+      p.resetKeys();
+      this.invalidate();
+    });
+    el('div', 'screen-help', r, 'gamepad: left stick moves · right stick aims · A jump · RT cast · LT harvest · X/Y/B wands · Start pause');
+    const menu = el('div', 'screen-menu', r);
+    this.button(menu, 'Esc', 'back', () => this.actions.closeSettings());
+  }
+
+  /** Wait for the next key press and bind it to `action` (Esc cancels). The game never sees that key. */
+  private startRebind(action: Action): void {
+    this.rebinding = action;
+    this.invalidate();
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      window.removeEventListener('keydown', onKey, true);
+      if (e.code !== 'Escape') this.prefs.rebind(action, e.code);
+      this.rebinding = null;
+      this.invalidate();
+    };
+    window.addEventListener('keydown', onKey, true);
+  }
   private key = '';
   /** The title's seed field. */
   seedField: HTMLInputElement | null = null;
@@ -64,12 +152,13 @@ export class Screens {
     private readonly actions: ScreenActions,
     private readonly title: TitleInfo,
     private readonly book: Codex,
+    private readonly prefs: Settings,
   ) {
     root.hidden = true;
   }
 
   show(kind: ScreenKind | null, run: Run | null): void {
-    const key = `${kind}|${run?.seed}|${run?.depth}|${run?.phase}|${run?.shrinePicks}|${run?.offers.length}|${run?.gold}|${this.book.startingWand.id}|${this.book.runCount}`;
+    const key = `${kind}|${run?.seed}|${run?.depth}|${run?.phase}|${run?.shrinePicks}|${run?.offers.length}|${run?.gold}|${this.book.startingWand.id}|${this.book.runCount}|${this.revision}`;
     if (key === this.key) return;
     this.key = key;
     this.current = kind;
@@ -88,6 +177,8 @@ export class Screens {
       case 'death':
       case 'won':
         return this.buildEnd(kind, run!);
+      case 'settings':
+        return this.buildSettings();
       case 'codex':
         return this.buildCodex();
     }
@@ -180,6 +271,7 @@ export class Screens {
     this.button(menu, 'L', 'lab: paint materials with every glyph you know', () => this.actions.lab());
     this.button(menu, 'C', `codex · ${this.book.count('reaction')}/${CODEX_ENTRIES.reaction.length} reactions · ${this.book.unlocked().length}/${UNLOCKS.length} unlocks`, () => this.actions.codex());
     const wands = this.book.startingWands();
+    this.button(menu, 'S', 'settings', () => this.actions.settings());
     if (wands.length > 1) this.button(menu, 'W', `starting wand: ${this.book.startingWand.name}`, () => this.actions.cycleWand());
     el('div', 'screen-help', r, 'A/D move · W jump · left click cast · right click harvest · Tab spell editor · Esc pause');
   }
@@ -192,6 +284,7 @@ export class Screens {
     this.button(menu, 'Esc', 'resume', () => this.actions.resume());
     this.button(menu, 'R', 'restart run', () => this.actions.again());
     this.button(menu, 'C', 'codex', () => this.actions.codex());
+    this.button(menu, 'S', 'settings', () => this.actions.settings());
     this.button(menu, 'Q', 'quit to title', () => this.actions.quit());
   }
 

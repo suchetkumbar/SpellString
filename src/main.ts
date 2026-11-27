@@ -12,13 +12,18 @@ import { Camera, type ViewTransform } from './render/camera';
 import { Canvas2DRenderer } from './render/canvas2d';
 import { buildStyleTable } from './render/styles';
 import { sceneView } from './render/sceneView';
+import { Juice } from './render/juice';
+import { PostFx } from './render/postfx';
 import { DebugOverlay } from './ui/debugOverlay';
 import { Lab } from './ui/lab';
 import { Hud } from './ui/hud';
 import { SpellEditor } from './ui/editor';
 import { Screens, type ScreenKind } from './ui/screens';
+import { TitleDemo } from './ui/titleDemo';
 import { Codex } from './game/codex';
+import { Settings, type SettingsData } from './game/settings';
 import { browserStore } from './ui/storage';
+import { Sound } from './audio/sfx';
 
 declare global {
   interface Window {
@@ -28,12 +33,20 @@ declare global {
       readonly view: ViewTransform | null;
       readonly dpr: number;
       readonly screen: ScreenKind | null;
+      readonly settings: Settings;
+      /** Is the WebGL pass drawing right now? */
+      readonly postActive: boolean;
+      /** Recent frame timings (ms): whole frame, sim, render (incl. post). */
+      readonly perf: { readonly frame: number; readonly sim: number; readonly render: number };
     };
   }
 }
 
 const FONT_FAMILY = '"JetBrains Mono", ui-monospace, monospace';
 const LEVELS = { tutorial, testRoom };
+/** Explosion light: how long it lasts (ms), its color, and its size relative to the blast. */
+const LIGHT_MS = 380;
+const LIGHT_RGB = '255, 170, 80';
 
 async function loadFonts(): Promise<void> {
   const base = import.meta.env.BASE_URL;
@@ -68,32 +81,65 @@ function randomSeed(): number {
 async function boot(): Promise<void> {
   await loadFonts();
 
+  const store = browserStore();
+  const settings = new Settings(store);
+  // The Reaction Codex persists in localStorage between runs (and reloads).
+  const codex = new Codex(store);
+
   const canvas = el<HTMLCanvasElement>('game');
+  const postCanvas = el<HTMLCanvasElement>('post');
   const debug = new DebugOverlay(el('debug'));
   const lab = new Lab(el('lab'));
   const input = new InputManager(canvas);
-  const styles = buildStyleTable();
+  input.bindings = (a) => settings.keysFor(a);
+  let styles = buildStyleTable({ highContrast: settings.data.highContrast });
   const renderer = new Canvas2DRenderer(canvas, styles, FONT_FAMILY);
   const camera = new Camera();
   const loop = new FixedStep(TUNING.simHz, TUNING.maxCatchUpSteps);
   const hud = new Hud(el('hud'), el('tip'), el('discover'));
-  // The Reaction Codex persists in localStorage between runs (and reloads).
-  const codex = new Codex(browserStore());
-  let codexOpen = false;
   const hudRoot = el('hud');
   const hintBar = el('hint');
   // Tab pauses the game; on close, drop the time spent in the editor so the sim doesn't catch up.
   const editor = new SpellEditor(el('editor'), () => loop.reset());
+  const juice = new Juice({ shake: true, hitStop: true, reduceFlashing: false });
+  const sound = new Sound();
+  const demo = new TitleDemo();
   const today = new Date();
+  /** The WebGL pass, created on first use; null if unavailable (then the plain canvas shows). */
+  let post: PostFx | null | undefined;
+  let postActive = false;
+  const lights: { x: number; y: number; r: number; until: number }[] = [];
+
+  /** Apply settings to every system (on start and whenever they change). */
+  const applySettings = (s: SettingsData): void => {
+    juice.options = { shake: s.shake, hitStop: s.hitStop, reduceFlashing: s.reduceFlashing };
+    sound.setVolumes({ master: s.masterVolume, sfx: s.sfxVolume, ambient: s.ambientVolume });
+    renderer.reduceFlashing = s.reduceFlashing;
+    const contrast = styles.background === '#000000';
+    if (contrast !== s.highContrast) {
+      styles = buildStyleTable({ highContrast: s.highContrast });
+      renderer.setStyles(styles);
+    }
+  };
+  applySettings(settings.data);
+  settings.onChange(applySettings);
+
+  // Browsers only allow audio after a user gesture.
+  const unlockAudio = (): void => sound.unlock();
+  window.addEventListener('keydown', unlockAudio);
+  window.addEventListener('pointerdown', unlockAudio);
 
   let run: Run | null = null;
   let paused = false;
+  let codexOpen = false;
+  let settingsOpen = false;
 
   const startRun = (mode: RunMode, seed: number = randomSeed()): void => {
     editor.close(false);
     const label = mode === 'daily' ? `daily ${dayKey(today)}` : '';
     run = new Run(seed, mode, LEVELS, label, codex);
     codexOpen = false;
+    settingsOpen = false;
     lab.setEnabled(mode === 'lab');
     paused = false;
     camera.snapTo(run.game.player.x, run.game.player.y);
@@ -102,6 +148,7 @@ async function boot(): Promise<void> {
   const toTitle = (): void => {
     editor.close(false);
     codexOpen = false;
+    settingsOpen = false;
     run = null;
     paused = false;
     lab.setEnabled(false);
@@ -110,6 +157,18 @@ async function boot(): Promise<void> {
   const again = (): void => {
     if (!run) return;
     startRun(run.mode, run.mode === 'run' ? randomSeed() : run.seed);
+  };
+  const choose = (i: number): void => {
+    if (!run || run.phase !== 'shrine') return;
+    run.choose(i);
+    camera.snapTo(run.game.player.x, run.game.player.y);
+    loop.reset();
+  };
+  const descend = (): void => {
+    if (!run) return;
+    run.descend();
+    camera.snapTo(run.game.player.x, run.game.player.y);
+    loop.reset();
   };
 
   const screens = new Screens(
@@ -131,24 +190,21 @@ async function boot(): Promise<void> {
       closeCodex: () => {
         codexOpen = false;
       },
+      settings: () => {
+        settingsOpen = true;
+      },
+      closeSettings: () => {
+        settingsOpen = false;
+      },
       cycleWand: () => {
         codex.cycleStartingWand();
       },
-      choose: (i) => {
-        if (!run || run.phase !== 'shrine') return;
-        run.choose(i);
-        camera.snapTo(run.game.player.x, run.game.player.y);
-        loop.reset();
-      },
-      descend: () => {
-        if (!run) return;
-        run.descend();
-        camera.snapTo(run.game.player.x, run.game.player.y);
-        loop.reset();
-      },
+      choose,
+      descend,
     },
     { dailyDate: dayKey(today), dailySeed: dailySeed(today) },
     codex,
+    settings,
   );
 
   // URL shortcuts: ?level=test (developer test room), ?seed=N, ?daily, ?tutorial, ?lab.
@@ -196,7 +252,12 @@ async function boot(): Promise<void> {
   let aimY = 0;
   const readTickInput = (): TickInput => {
     const mouse = input.mouseWorld(renderer.view, dpr);
-    if (mouse) {
+    const p = run?.game.player;
+    if (input.padAim && p) {
+      // Right stick: aim up to 10 cells out from the witch.
+      aimX = p.x + input.padAim.x * 10;
+      aimY = p.y + input.padAim.y * 10;
+    } else if (mouse) {
       aimX = mouse.x;
       aimY = mouse.y;
     }
@@ -207,12 +268,15 @@ async function boot(): Promise<void> {
       jumpHeld: input.action('jump'),
       aimX,
       aimY,
-      harvest: !lab.enabled && (input.mouseButtons & 2) !== 0,
-      cast: !lab.enabled && (castLatch || (input.mouseButtons & 1) !== 0),
+      harvest: !lab.enabled && ((input.mouseButtons & 2) !== 0 || input.action('harvest')),
+      cast: !lab.enabled && (castLatch || (input.mouseButtons & 1) !== 0 || input.action('cast')),
       wandSlot: wandLatch,
     };
   };
 
+  let lastFrameMs = 0;
+  let lastSimMs = 0;
+  let lastRenderMs = 0;
   // Read-only debug/test hook (used by Playwright tests and the M10 bot).
   window.spellstring = {
     get game() {
@@ -230,10 +294,18 @@ async function boot(): Promise<void> {
     get screen() {
       return screens.current;
     },
+    settings,
+    get postActive() {
+      return postActive;
+    },
+    get perf() {
+      return { frame: lastFrameMs, sim: lastSimMs, render: lastRenderMs };
+    },
   };
 
   /** Which menu (if any) is over the game right now. */
   const screenFor = (): ScreenKind | null => {
+    if (settingsOpen) return 'settings';
     if (codexOpen) return 'codex';
     if (!run) return 'title';
     if (run.phase === 'dead') return 'death';
@@ -242,37 +314,36 @@ async function boot(): Promise<void> {
     return paused ? 'pause' : null;
   };
 
-  /** Keys for whichever menu is up. */
+  /** Keys (and gamepad buttons) for whichever menu is up. */
   const menuKeys = (): void => {
     const kind = screens.current;
-    if (kind === 'title') {
+    if (kind === 'settings') {
+      if (!screens.rebinding && input.actionPressed('pause')) settingsOpen = false;
+    } else if (kind === 'title') {
       // (Enter typed into the seed field is handled by the field itself; the game never sees it.)
-      if (input.wasPressed('Enter') || input.wasPressed('NumpadEnter')) startRun('run', parseSeed(screens.seedField?.value ?? '') ?? randomSeed());
+      if (input.actionPressed('confirm')) startRun('run', parseSeed(screens.seedField?.value ?? '') ?? randomSeed());
       else if (input.wasPressed('KeyD')) startRun('daily', dailySeed(today));
       else if (input.wasPressed('KeyT')) startRun('tutorial', 1);
       else if (input.wasPressed('KeyL')) startRun('lab', 1);
-      else if (input.wasPressed('KeyC')) codexOpen = true;
+      else if (input.actionPressed('codex')) codexOpen = true;
+      else if (input.wasPressed('KeyS')) settingsOpen = true;
       else if (input.wasPressed('KeyW')) codex.cycleStartingWand();
     } else if (kind === 'codex') {
-      if (input.actionPressed('pause') || input.wasPressed('KeyC')) codexOpen = false;
+      if (input.actionPressed('pause') || input.actionPressed('codex')) codexOpen = false;
     } else if (kind === 'pause') {
       if (input.actionPressed('pause')) {
         paused = false;
         loop.reset();
       } else if (input.wasPressed('KeyR')) again();
       else if (input.wasPressed('KeyQ')) toTitle();
-      else if (input.wasPressed('KeyC')) codexOpen = true;
+      else if (input.actionPressed('codex')) codexOpen = true;
+      else if (input.wasPressed('KeyS')) settingsOpen = true;
     } else if (kind === 'shrine' && run) {
-      if (run.shrinePicks > 0 && (input.wasPressed('Enter') || input.wasPressed('NumpadEnter'))) {
-        run.descend();
-        camera.snapTo(run.game.player.x, run.game.player.y);
-        loop.reset();
-      }
+      if (run.shrinePicks > 0 && input.actionPressed('confirm')) descend();
+      const picks = ['wand1', 'wand2', 'wand3'] as const;
       for (let i = 0; i < 3; i++) {
-        if (input.wasPressed(`Digit${i + 1}`) || input.wasPressed(`Numpad${i + 1}`)) {
-          run.choose(i);
-          camera.snapTo(run.game.player.x, run.game.player.y);
-          loop.reset();
+        if (input.actionPressed(picks[i]!) || input.wasPressed(`Numpad${i + 1}`)) {
+          choose(i);
           break;
         }
       }
@@ -285,12 +356,24 @@ async function boot(): Promise<void> {
     }
   };
 
+  /** Show the 2D canvas through the WebGL pass (if wanted and available), else plainly. */
+  const present = (): void => {
+    const want = settings.data.crt;
+    if (want && post === undefined) post = PostFx.create(postCanvas);
+    postActive = want && !!post;
+    postCanvas.hidden = !postActive;
+    canvas.style.opacity = postActive ? '0' : '1';
+    if (postActive) post!.render(canvas, true);
+  };
+
   let last = performance.now();
   let lastDebugDraw = 0;
 
   const frame = (now: number): void => {
+    const frameStart = performance.now();
     const dt = Math.min(now - last, 250);
     last = now;
+    input.pollGamepad();
 
     // Per-frame (non-simulation) controls.
     if (input.actionPressed('debug')) debug.toggle();
@@ -314,7 +397,20 @@ async function boot(): Promise<void> {
 
     const current: Run | null = run;
     if (!current) {
-      renderer.clear();
+      // Title: a living backdrop behind the menu.
+      demo.step();
+      camera.snapTo(demo.grid.width / 2, demo.grid.height / 2);
+      renderer.render({
+        grid: demo.grid,
+        camera,
+        entities: [],
+        cursor: null,
+        timeMs: now,
+        chunks: { shift: demo.sim.chunkShift, chunksX: demo.sim.chunksX, dirty: demo.sim.chunkDirty, active: demo.sim.chunkActive },
+        glow: settings.data.glow,
+      });
+      present();
+      sound.ambience(null, 0, 0, false);
       input.endFrame();
       requestAnimationFrame(frame);
       return;
@@ -338,13 +434,15 @@ async function boot(): Promise<void> {
 
     if (input.actionPressed('jump')) jumpLatch = true;
     if (running && (input.mousePressed & 1) !== 0) castLatch = true;
-    // Keys 1-3 switch wands (in Lab mode the number keys pick materials instead).
+    // Wand keys (1-3, or as rebound; in Lab mode the number keys pick materials instead).
     if (running && !lab.enabled) {
-      for (let k = 0; k < 3; k++) if (input.wasPressed(`Digit${k + 1}`)) wandLatch = k;
+      if (input.actionPressed('wand1')) wandLatch = 0;
+      else if (input.actionPressed('wand2')) wandLatch = 1;
+      else if (input.actionPressed('wand3')) wandLatch = 2;
     }
 
-    // Fixed-timestep simulation.
-    const steps = running ? loop.advance(dt) : 0;
+    // Fixed-timestep simulation (held still during hit-stop).
+    const steps = running && !juice.stopping ? loop.advance(dt) : 0;
     const simStart = performance.now();
     const simulateWorld = !(lab.enabled && lab.paused);
     for (let i = 0; i < steps && current.phase === 'level'; i++) {
@@ -358,8 +456,21 @@ async function boot(): Promise<void> {
 
     // The level may have just ended (exit or death): draw the level it ended in.
     const shown = current.game;
+    // Feel: sounds, shake, hit-stop and explosion light from this frame's events.
+    for (const e of shown.events.splice(0)) {
+      juice.feed(e);
+      sound.play(e);
+      if (e.kind === 'explode') lights.push({ x: e.x, y: e.y, r: e.r * 2.2, until: now + LIGHT_MS });
+    }
+    for (let i = lights.length - 1; i >= 0; i--) if (lights[i]!.until <= now) lights.splice(i, 1);
+    const shake = juice.update(dt);
+    camera.shakeX = shake.x;
+    camera.shakeY = shake.y;
+    sound.ambience(current.biome?.key ?? null, shown.nearbyFire, shown.nearbyAcid, shown.harvester.active);
+
     const a = running ? loop.alpha : 1;
-    const scene = sceneView(shown, styles, a, now);
+    const reduce = settings.data.reduceFlashing;
+    const scene = sceneView(shown, styles, a, now, reduce);
     const p = shown.player;
     const lead = TUNING.cameraLeadSeconds;
     camera.follow(scene.px + p.body.vx * lead, scene.py + p.body.vy * lead * 0.5, dt / 1000);
@@ -383,11 +494,17 @@ async function boot(): Promise<void> {
       },
       showActiveChunks: debug.visible,
       labels: scene.labels,
+      glow: settings.data.glow,
+      lights: lights.map((l) => ({ x: l.x, y: l.y, r: l.r, rgb: LIGHT_RGB, alpha: (reduce ? 0.3 : 0.65) * Math.max(0, (l.until - now) / LIGHT_MS) })),
+      flash: reduce ? 0 : juice.flash,
     });
+    present();
     const renderMs = performance.now() - renderStart;
     hud.update(shown, current);
 
     debug.record(now, dt, steps + labSteps, simMs, renderMs);
+    lastSimMs = simMs;
+    lastRenderMs = renderMs;
     if (now - lastDebugDraw >= TUNING.debugRefreshMs) {
       lastDebugDraw = now;
       let cursorText = 'cursor  -';
@@ -399,7 +516,7 @@ async function boot(): Promise<void> {
       debug.draw([
         cursorText,
         `player  ${p.x.toFixed(2)},${p.y.toFixed(2)}  v ${p.body.vx.toFixed(1)},${p.body.vy.toFixed(1)}${p.body.grounded ? '  grounded' : ''}`,
-        `zoom    ${camera.zoom}x  cell ${camera.cellDevicePx(dpr)} dpx  dpr ${dpr}`,
+        `zoom    ${camera.zoom}x  cell ${camera.cellDevicePx(dpr)} dpx  dpr ${dpr}  post ${postActive ? 'on' : 'off'}`,
         `run     ${current.mode}  seed ${current.seed}  level seed ${shown.seed}  depth ${current.depth}/${current.totalLevels}`,
         `tick    ${shown.tick}  dropped ${loop.droppedSteps}  creatures ${shown.creatures.length}`,
         `chunks  ${shown.sim.activeChunkCount}/${shown.sim.chunkActive.length} simulated (outlined), ${renderer.chunksRedrawn} redrawn`,
@@ -407,6 +524,7 @@ async function boot(): Promise<void> {
     }
 
     input.endFrame();
+    lastFrameMs = performance.now() - frameStart;
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

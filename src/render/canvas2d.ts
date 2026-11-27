@@ -6,6 +6,9 @@ import type { ViewTransform } from './camera';
 import type { RenderFrame, Renderer } from './renderer';
 import type { StyleTable } from './styles';
 
+/** The glow layer is blurred at this many pixels per cell before being scaled up. */
+const GLOW_SCALE = 3;
+
 /** A cached bitmap of one simulation chunk at the current cell size. */
 interface ChunkCache {
   canvas: HTMLCanvasElement;
@@ -34,10 +37,18 @@ export class Canvas2DRenderer implements Renderer {
   private cacheGrid: Grid | null = null;
   /** Chunks re-rendered in the last frame (debug). */
   chunksRedrawn = 0;
+  /** Settings: no fire flicker. */
+  reduceFlashing = false;
+  private glowImage: ImageData | null = null;
+  private glowCanvas: HTMLCanvasElement | null = null;
+  private glowCtx: CanvasRenderingContext2D | null = null;
+  private blurCanvas: HTMLCanvasElement | null = null;
+  private blurCtx: CanvasRenderingContext2D | null = null;
+  private readonly rgbCache = new Map<string, readonly [number, number, number]>();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly styles: StyleTable,
+    private styles: StyleTable,
     private readonly fontFamily: string,
   ) {
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -51,6 +62,13 @@ export class Canvas2DRenderer implements Renderer {
     const h = Math.max(1, Math.round(deviceH));
     if (this.canvas.width !== w) this.canvas.width = w;
     if (this.canvas.height !== h) this.canvas.height = h;
+  }
+
+  /** Swap the style table (high-contrast palette): every cached bitmap is redrawn. */
+  setStyles(styles: StyleTable): void {
+    this.styles = styles;
+    this.atlas = null;
+    this.dropCaches(this.cacheCell, this.cacheGrid!);
   }
 
   clear(): void {
@@ -124,16 +142,54 @@ export class Canvas2DRenderer implements Renderer {
     const shades = this.styles.shades;
     const spacing = TUNING.shimmerSpacing;
     const phase = Math.floor(frame.timeMs / TUNING.shimmerPeriodMs);
+    // Glints (gold, ice) are rarer and slower than liquid shimmer.
+    const glintPhase = Math.floor(frame.timeMs / (TUNING.shimmerPeriodMs * 3));
+    const glintSpacing = spacing * 3;
+    const glowColor = this.styles.materialGlow;
+    const glow = frame.glow === true;
+    let glowW = 0;
+    let glowData: Uint8ClampedArray | null = null;
+    if (glow && x1 > x0 && y1 > y0) {
+      glowW = x1 - x0;
+      glowData = this.glowBuffer(glowW, y1 - y0);
+    }
     for (let y = y0; y < y1; y++) {
       const row = y * grid.width;
       for (let x = x0; x < x1; x++) {
         const i = row + x;
         const m = mat[i] as number;
-        if (!shimmer[m]) continue;
-        if ((((variant[i] as number) >> 2) + phase + x + y) % spacing !== 0) continue;
+        if (glowData && glowColor[m]) {
+          // One pixel per cell in the glow image; upscaled smoothly (and blurred) below.
+          const rgb = this.rgbOf(glowColor[m] as string);
+          const o = ((y - y0) * glowW + (x - x0)) * 4;
+          glowData[o] = rgb[0];
+          glowData[o + 1] = rgb[1];
+          glowData[o + 2] = rgb[2];
+          glowData[o + 3] = 200;
+        }
+        const kind = shimmer[m];
+        if (!kind) continue;
+        const v = (variant[i] as number) >> 2;
+        if (kind === 1 ? (v + phase + x + y) % spacing !== 0 : (v * 7 + glintPhase + x * 3 + y) % glintSpacing !== 0) continue;
         const st = (first[m] as number) + shades - 1;
         ctx.drawImage(src, sx[st] as number, sy[st] as number, cell, cell, ox + x * cell, oy + y * cell, cell, cell);
       }
+    }
+    if (glowData) this.drawGlow(glowW, y1 - y0, ox + x0 * cell, oy + y0 * cell, cell);
+    if (frame.lights && frame.lights.length > 0) {
+      // Explosion light: soft radial blooms added on top.
+      ctx.globalCompositeOperation = 'lighter';
+      for (const l of frame.lights) {
+        const px = ox + l.x * cell;
+        const py = oy + l.y * cell;
+        const r = l.r * cell;
+        const g = ctx.createRadialGradient(px, py, 0, px, py, r);
+        g.addColorStop(0, `rgba(${l.rgb}, ${l.alpha})`);
+        g.addColorStop(1, `rgba(${l.rgb}, 0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(px - r, py - r, r * 2, r * 2);
+      }
+      ctx.globalCompositeOperation = 'source-over';
     }
 
     const lw = Math.max(1, Math.round(this.dpr));
@@ -175,16 +231,17 @@ export class Canvas2DRenderer implements Renderer {
     // Entities draw on top of the world. Snap to whole device pixels to stay crisp.
     for (const e of frame.entities) {
       const st = e.style;
+      const size = e.scale !== undefined ? Math.max(2, Math.round(cell * e.scale)) : cell;
       ctx.drawImage(
         src,
         sx[st] as number,
         sy[st] as number,
         cell,
         cell,
-        Math.round(ox + (e.x - 0.5) * cell),
-        Math.round(oy + (e.y - 0.5) * cell),
-        cell,
-        cell,
+        Math.round(ox + e.x * cell - size / 2),
+        Math.round(oy + e.y * cell - size / 2),
+        size,
+        size,
       );
     }
 
@@ -206,6 +263,79 @@ export class Canvas2DRenderer implements Renderer {
       }
       ctx.globalAlpha = 1;
     }
+
+    // A brief white flash for big explosions (off with reduce-flashing; the caller passes 0).
+    if (frame.flash && frame.flash > 0.01) {
+      ctx.globalAlpha = frame.flash;
+      ctx.fillStyle = '#fff6e0';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /** The glow image buffer, cleared, sized w x h (one pixel per visible cell). */
+  private glowBuffer(w: number, h: number): Uint8ClampedArray {
+    if (!this.glowImage || this.glowImage.width !== w || this.glowImage.height !== h) {
+      this.glowImage = new ImageData(w, h);
+    }
+    this.glowImage.data.fill(0);
+    return this.glowImage.data;
+  }
+
+  /** Upscale the glow image over the world: smoothed, blurred where supported, added on. */
+  private drawGlow(w: number, h: number, dx: number, dy: number, cell: number): void {
+    if (!this.glowImage) return;
+    if (!this.glowCanvas) {
+      this.glowCanvas = document.createElement('canvas');
+      this.glowCtx = this.glowCanvas.getContext('2d');
+    }
+    const gc = this.glowCanvas;
+    const gctx = this.glowCtx;
+    if (!gctx) return;
+    if (gc.width !== w || gc.height !== h) {
+      gc.width = w;
+      gc.height = h;
+    }
+    gctx.putImageData(this.glowImage, 0, 0);
+    // Blur at low resolution (cheap even without a GPU), then let smooth upscaling spread it.
+    if (!this.blurCanvas) {
+      this.blurCanvas = document.createElement('canvas');
+      this.blurCtx = this.blurCanvas.getContext('2d');
+    }
+    const bc = this.blurCanvas;
+    const bctx = this.blurCtx;
+    if (!bctx) return;
+    const bw = w * GLOW_SCALE;
+    const bh = h * GLOW_SCALE;
+    if (bc.width !== bw || bc.height !== bh) {
+      bc.width = bw;
+      bc.height = bh;
+    } else {
+      bctx.clearRect(0, 0, bw, bh);
+    }
+    bctx.imageSmoothingEnabled = true;
+    bctx.filter = `blur(${GLOW_SCALE}px)`;
+    bctx.drawImage(gc, 0, 0, w, h, 0, 0, bw, bh);
+    bctx.filter = 'none';
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.55;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(bc, 0, 0, bw, bh, dx, dy, w * cell, h * cell);
+    ctx.restore();
+    ctx.imageSmoothingEnabled = false;
+  }
+
+  /** Parse a #rrggbb color once and cache it. */
+  private rgbOf(hex: string): readonly [number, number, number] {
+    let c = this.rgbCache.get(hex);
+    if (!c) {
+      const n = parseInt(hex.slice(1), 16);
+      c = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+      this.rgbCache.set(hex, c);
+    }
+    return c;
   }
 
   /** Render one chunk's cells into its cache bitmap. */
@@ -222,7 +352,7 @@ export class Canvas2DRenderer implements Renderer {
     const sx = atlas.sx;
     const sy = atlas.sy;
 
-    ctx.fillStyle = COLORS.background;
+    ctx.fillStyle = this.styles.background;
     ctx.fillRect(0, 0, size * cell, size * cell);
     let animated = false;
     const gx1 = Math.min(grid.width, gx0 + size);
@@ -243,7 +373,7 @@ export class Canvas2DRenderer implements Renderer {
           animated = true;
           const l = life[i] as number;
           band = l === 0 || l > fireHot ? 0 : l > fireWarm ? 1 : 2;
-          if (Math.random() < TUNING.fireFlickerChance) band++;
+          if (!this.reduceFlashing && Math.random() < TUNING.fireFlickerChance) band++;
           if (band >= nb) band = nb - 1;
         }
         const st = base + band * shades + ((variant[i] as number) % shades);

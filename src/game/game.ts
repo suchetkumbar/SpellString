@@ -13,7 +13,7 @@ import { Carriers } from './carriers';
 import { Caster, spellName } from './casting';
 import { applyExplosions } from './explosions';
 import type { PlannedCast } from './spell/plan';
-import type { GameContext, MessageKind } from './context';
+import type { GameContext, GameEvent, MessageKind } from './context';
 import { Creature } from './creature';
 import { updateCreatures } from './creatures';
 import { Effects } from './effects';
@@ -61,6 +61,9 @@ export interface GameOptions {
 }
 
 const MAX_MESSAGES = 6;
+/** Events kept between drains (a cap, so a headless game never grows without bound). */
+const MAX_EVENTS = 256;
+const FIRE_WATER = REACTIONS.findIndex((r) => r.id === 'fire+water');
 /** How often (ticks) to look around for new materials, creatures and glyphs. */
 const DISCOVERY_SCAN_EVERY = 15;
 /** Half-size of the area around the witch that counts as seen, in cells. */
@@ -95,6 +98,13 @@ export class Game implements GameContext {
   /** Recent discoveries and unlocks, newest last. */
   readonly discoveries: Discovery[] = [];
   readonly codex: Codex | null;
+  /** Feel-layer events since the last drain (sound, shake). Drained by the browser each frame. */
+  readonly events: GameEvent[] = [];
+  /** Fire and acid cells near the witch (refreshed a few times a second), for ambient sound. */
+  nearbyFire = 0;
+  nearbyAcid = 0;
+  private lastSizzles = 0;
+  private deathAnnounced = false;
   private nextCreatureId = 1;
 
   constructor(
@@ -147,6 +157,10 @@ export class Game implements GameContext {
     return this.known.has(ch) && (SPELL_GLYPH_BY_CHAR.get(ch)?.available ?? false);
   };
 
+  emit(e: GameEvent): void {
+    if (this.events.length < MAX_EVENTS) this.events.push(e);
+  }
+
   say(text: string, kind: MessageKind = 'info'): void {
     this.messages.push({ text, kind, tick: this.tick });
     if (this.messages.length > MAX_MESSAGES) this.messages.shift();
@@ -179,6 +193,7 @@ export class Game implements GameContext {
     const unlocks = this.codex?.discover(kind, id);
     if (!unlocks) return;
     this.discoveries.push({ title: 'DISCOVERED', text: entryText(kind, id), tick: this.tick });
+    this.emit({ kind: 'discover' });
     for (const u of unlocks) this.discoveries.push({ title: 'UNLOCKED', text: `${u.title}: ${u.text}`, tick: this.tick });
     if (this.discoveries.length > 8) this.discoveries.splice(0, this.discoveries.length - 8);
   }
@@ -206,6 +221,28 @@ export class Game implements GameContext {
       if (!c.dead && Math.hypot(c.x - p.x, c.y - p.y) <= CREATURE_SEEN_RANGE) this.discover('creature', c.def.key);
     }
     for (const glyph of CODEX_ENTRIES.glyph) if (this.owns(glyph)) this.discover('glyph', glyph);
+  }
+
+  /** Count fire and acid around the witch (for the ambient crackle and bubbling). */
+  private scanAmbience(): void {
+    const p = this.player;
+    const g = this.grid;
+    let fire = 0;
+    let acid = 0;
+    const x0 = Math.max(0, Math.floor(p.x) - SEEN_HALF_W);
+    const x1 = Math.min(g.width - 1, Math.floor(p.x) + SEEN_HALF_W);
+    const y0 = Math.max(0, Math.floor(p.y) - SEEN_HALF_H);
+    const y1 = Math.min(g.height - 1, Math.floor(p.y) + SEEN_HALF_H);
+    for (let y = y0; y <= y1; y++) {
+      const row = y * g.width;
+      for (let x = x0; x <= x1; x++) {
+        const m = g.mat[row + x];
+        if (m === MAT.fire) fire++;
+        else if (m === MAT.acid) acid++;
+      }
+    }
+    this.nearbyFire = fire;
+    this.nearbyAcid = acid;
   }
 
   /** The wand in hand. */
@@ -236,7 +273,20 @@ export class Game implements GameContext {
     updateCreatures(this);
     this.features.update(this);
     applyExplosions(this);
-    if (this.tick % DISCOVERY_SCAN_EVERY === 0) this.scanDiscoveries();
+    if (this.tick % DISCOVERY_SCAN_EVERY === 0) {
+      this.scanDiscoveries();
+      this.scanAmbience();
+    }
+    // Fire meeting water: a sizzle, scaled by how much of it happened.
+    const sizzles = this.sim.reactionCounts[FIRE_WATER] ?? 0;
+    if (sizzles > this.lastSizzles) this.emit({ kind: 'sizzle', amount: sizzles - this.lastSizzles });
+    this.lastSizzles = sizzles;
+    // A real blow this tick (not a trickle of burning), and death, for the feel layer.
+    if (this.player.hurtThisTick >= 2) this.emit({ kind: 'hurt', amount: this.player.hurtThisTick });
+    if (this.player.dead && !this.deathAnnounced) {
+      this.deathAnnounced = true;
+      this.emit({ kind: 'death' });
+    }
     this.effects.update();
     this.tick++;
   }

@@ -44,13 +44,18 @@ export class Camera {
   }
 
   /** Builds the frame transform, keeping the view inside the level when the level is larger than the view. */
+  /** Screen-shake offset in cells, set by the feel layer each frame (0 when shake is off). */
+  shakeX = 0;
+  shakeY = 0;
+
   transform(levelW: number, levelH: number, canvasW: number, canvasH: number, cell: number): ViewTransform {
     const cx = clampAxis(this.x, levelW, canvasW / cell);
     const cy = clampAxis(this.y, levelH, canvasH / cell);
     return {
       cell,
-      originX: Math.round(canvasW / 2 - cx * cell),
-      originY: Math.round(canvasH / 2 - cy * cell),
+      // The shake offset moves the view only (never the level clamp), in whole device pixels.
+      originX: Math.round(canvasW / 2 - cx * cell + this.shakeX * cell),
+      originY: Math.round(canvasH / 2 - cy * cell + this.shakeY * cell),
       canvasW,
       canvasH,
     };

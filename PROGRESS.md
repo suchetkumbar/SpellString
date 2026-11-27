@@ -1,5 +1,89 @@
 # Spellstring: progress log
 
+## M9: Juice and sound (done)
+
+### What changed
+- **Game events** (`GameContext.emit`, `Game.events`): the simulation reports what happened each tick for the feel layer:
+  - cast (with its delivery), impact, splash, explode (with its radius), hurt, hit, kill, death, fizzle
+  - sizzle (fire meeting water), discover, chest, portal
+
+  Nothing in the simulation reads them, and they're capped at 256 so a headless game never grows.
+- **Screen shake and hit-stop** (`src/render/juice.ts`):
+  - **Shake** uses trauma (squared) with smooth sine noise, decaying at 1.8/s. Explosions shake by size, then come blows on the witch, kills and creature hits; kinetic impacts barely shake.
+  - **Hit-stop** freezes the simulation for 45–160 ms on blows, kills, explosions and death.
+  - **Explosions flash** the screen briefly.
+  - Each has an off switch. The shake only moves the camera's view, never the game.
+- **Glow** on fire, acid and explosions (in the 2D renderer, so it works without WebGL): emissive cells go into a one-pixel-per-cell image, which is blurred at low resolution and added on top. Explosions also add a short warm radial light.
+- **WebGL bloom + CRT pass** (`src/render/postfx.ts`): the 2D canvas is shown through a shader with bloom (an 8-tap ring blur of the bright parts), fine scanlines, a vignette and slight colour fringing. It has an off switch. **It falls back to the plain canvas** when WebGL is missing *or is software-emulated* (SwiftShader, llvmpipe), where it would cost far more than it's worth.
+- **Per-material effects:**
+  - Water, oil and acid **shimmer**, fire **flickers** through its colour bands, and gold and ice **glint**.
+  - Impacts throw **small glyph debris** (half-size glyphs of what burst) that arcs and falls.
+- **Sound** (`src/audio/sfx.ts`): everything is synthesised with WebAudio, with no audio files.
+  - **Casting:** one sound per delivery glyph (`>` zap, `)` thwup, `@` pulse, `_` double click).
+  - **Effects:** impacts, splash, sizzle, an explosion (noise plus a sub thump), hurt, hit, kill, death, fizzle, discovery chime, chest arpeggio and portal sweep.
+  - **Loops:** harvest suction while right click is held, and fire crackle and acid bubbling scaled by how much is near the witch.
+  - **Ambience per biome:** a noise bed (the Hollows low, the Tar Pits lower with bubbles, the Vaults airy with rare chimes).
+
+  Audio starts on the first key or click, as browsers require.
+- **The title screen** now has a living backdrop: a small simulated cave behind the menu, with sand pouring, water running, oil and a fire burning.
+- **Settings** (`src/game/settings.ts`, saved as `spellstring.settings.v1`, with bad values falling back to defaults):
+  - **Settings screen:** **S** on the title or in the pause menu.
+  - **Volume:** master, effects and ambience.
+  - **Toggles:** screen shake, hit-stop, CRT + bloom, glow, high-contrast palette and reduce flashing.
+  - **Key remapping:** click an action, press a key; Esc cancels. Gamepad bindings are kept. There's also "reset keys".
+- **High-contrast palette:** brighter colours with no per-cell shading on pure black. It swaps in live.
+- **Reduce flashing:**
+  - Flicker off: fire, the burning witch, burning creatures, the portal and mines all hold steady.
+  - Blinks off: the hurt flash and the i-frame blink are gone.
+  - Telegraphs stay a steady red with the `!`.
+  - No screen flash, and explosion lights are dimmer.
+- **Gamepad** (standard mapping, polled each frame): buttons become `Pad*` codes, so bindings, menus and remapping all work the same way.
+  - **Movement:** left stick or d-pad moves; A jumps (and confirms in menus).
+  - **Aiming and casting:** the right stick aims up to 10 cells out; RT casts and LT harvests.
+  - **Wands:** X, Y and B switch wands and pick shrine gifts.
+  - **Other buttons:** LB/RB zoom, Start pauses, Back opens the Codex.
+- **New actions** (`src/data/controls.ts`): confirm, cast, harvest, wand1–3, codex. Wand keys go through bindings now, so they can be remapped.
+- **Debug hook:** `window.spellstring` now exposes `settings`, `postActive` and `perf` (the latest frame, sim and render ms) for tests.
+
+### How to try it
+1. Run `npm run dev`, then click or press a key to start sound.
+2. In Lab (L on the title), paint gunpowder and light it: shake, flash, light and a thump.
+3. Settings (**S**): turn things off one by one. Try high contrast and reduce flashing during a firestorm. Rebind jump.
+4. Plug in a gamepad and play a run with it.
+
+### Tests (230 unit, 11 e2e)
+- **Settings:** persist across a reload with mocked storage (including rebinding, which keeps the pad button), fall back to defaults on missing, corrupt or out-of-range values, and notify listeners.
+- **Juice:** shake and hit-stop on explosions, settling back to zero. **With every switch off: no shake, no hit-stop, no flash.**
+- **High contrast:** a black background and flat shades.
+- **Game events:** cast, impact and a single death are reported, as are explosions (with radius) and sizzles. The event list stays bounded.
+- **Playwright:**
+  - **Settings** changed on the screen, including a rebind, **survive a fresh page load**.
+  - **The performance budget with every effect on** (CRT, glow, shake, explosions and burning oil in view): p90 frame **2.3 ms**, render 1.8 ms, sim 0.4 ms at 60 fps, on this machine's integrated Intel Iris Xe. The test asks for the GPU; on a machine without one, the game's fallback is what gets measured.
+  - A **stubbed gamepad** starts a run with A, walks with the stick and casts with RT.
+  - **The smoke tests all pass.**
+
+### Feel decisions to review
+- **Shake:** maximum offset 0.9 cells at full trauma. An explosion adds 0.3 + 0.07 × radius; a blow on the witch adds 0.25 plus up to 0.35 more.
+- **Hit-stop:** blow 70 ms, kill 45 ms, explosion 80 ms, death 160 ms.
+- **Glow strength:** 55% additive. Explosion light lasts 0.38 s at 2.2× the blast radius.
+- **CRT:** subtle by design (7% scanlines, a soft vignette). Bloom only lifts what's brighter than mid grey.
+- **Sound:** deliberately small and chippy, and every sound has a cooldown so bursts stay readable. Default volumes are 70% master, 80% effects and 50% ambience.
+
+### Ambiguities resolved (please check)
+- **"Falls back to the plain canvas"** also covers software WebGL. It's detected and skipped, because a CPU-rendered CRT pass dropped headless Chromium to 9 fps.
+- **The glow lives in the 2D renderer**, so it works (and has its own switch) whether or not the WebGL pass runs.
+- **What can be remapped:** movement, jump, swim down, editor, wands 1–3, zoom and restart. Menu keys stay fixed (Esc, Enter, the letters shown in brackets).
+
+### Known issues
+- **Audio isn't unit-tested.** Node has no WebAudio; the browser tests confirm it runs without errors.
+- **Gamepad users can't type spells:** the editor needs a keyboard. A glyph picker for pads would be a later addition.
+- **Rebinding doesn't check for conflicts:** one key can end up bound to two actions.
+
+### Dependencies
+No new dependencies.
+
+---
+
 ## M8: The Reaction Codex (done)
 
 ### What changed

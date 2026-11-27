@@ -5,7 +5,7 @@ const DT = 1 / TUNING.simHz;
 
 /** Short-lived glyph effects: fizzled glyphs popping off the wand, impact sparks. */
 export interface Fx {
-  readonly kind: 'fizzle' | 'spark';
+  readonly kind: 'fizzle' | 'spark' | 'debris';
   readonly material: number;
   x: number;
   y: number;
@@ -47,6 +47,18 @@ export class Effects {
     this.fx.push({ kind: 'fizzle', material, x, y, prevX: x, prevY: y, vx: rng.range(-1, 1), vy: -3, age: 0, life: 40 });
   }
 
+  /** Impact debris: small glyphs of what burst, thrown up and out (drawn at half size). */
+  debris(x: number, y: number, materials: readonly number[], rng: Rng): void {
+    if (materials.length === 0) return;
+    const n = Math.min(6, 2 + materials.length * 2);
+    for (let k = 0; k < n; k++) {
+      const a = rng.range(-Math.PI, 0);
+      const s = rng.range(5, 11);
+      const material = materials[k % materials.length] as number;
+      this.fx.push({ kind: 'debris', material, x, y, prevX: x, prevY: y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, age: 0, life: rng.intRange(16, 28) });
+    }
+  }
+
   /** A floating number above (x, y). Amounts under 1 are shown as 1 (something did happen). */
   number(x: number, y: number, amount: number, kind: FloatKind): void {
     const n = Math.max(1, Math.round(Math.abs(amount)));
@@ -64,8 +76,13 @@ export class Effects {
       if (f.age >= f.life) continue;
       f.x += f.vx * DT;
       f.y += f.vy * DT;
-      f.vx *= 0.9;
-      f.vy *= 0.9;
+      if (f.kind === 'debris') {
+        f.vy += 40 * DT; // falls
+        f.vx *= 0.97;
+      } else {
+        f.vx *= 0.9;
+        f.vy *= 0.9;
+      }
       this.fx[w++] = f;
     }
     this.fx.length = w;

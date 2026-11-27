@@ -18,6 +18,10 @@ export interface MaterialDef {
   readonly bands?: readonly string[];
   /** Water-like shimmer when drawn. */
   readonly shimmer?: boolean;
+  /** Occasional bright glints (gold, ice). */
+  readonly glint?: boolean;
+  /** Gives off light: drawn into the glow layer with this color. */
+  readonly glow?: string;
   readonly behavior: Behavior;
   /**
    * Relative weight. Powders sink through lighter liquids, heavier liquids sink
@@ -71,11 +75,11 @@ export const MATERIALS: readonly MaterialDef[] = [
     behavior: 'liquid', density: 10, dispersion: 5, harvestRate: 40,
   },
   {
-    id: MAT.fire, key: 'fire', name: 'fire', glyph: '^', color: '#ffd23f', bands: ['#ff9a1f', '#e8401c'],
+    id: MAT.fire, key: 'fire', name: 'fire', glyph: '^', color: '#ffd23f', bands: ['#ff9a1f', '#e8401c'], glow: '#ff8a1f',
     behavior: 'fire', density: 0, life: [60, 120], harvestRate: 45,
   },
   {
-    id: MAT.oil, key: 'oil', name: 'oil', glyph: '=', color: '#8a4f8e',
+    id: MAT.oil, key: 'oil', name: 'oil', glyph: '=', color: '#8a4f8e', shimmer: true,
     behavior: 'liquid', density: 8, dispersion: 3, harvestRate: 30,
   },
   {
@@ -93,11 +97,11 @@ export const MATERIALS: readonly MaterialDef[] = [
   // Milestone 7.
   {
     // Heavier than water. Each cell has a few bites of rock, wood or ice in it (see reactions).
-    id: MAT.acid, key: 'acid', name: 'acid', glyph: '%', color: '#9be22d', shimmer: true,
+    id: MAT.acid, key: 'acid', name: 'acid', glyph: '%', color: '#9be22d', shimmer: true, glow: '#7fd01c',
     behavior: 'liquid', density: 12, dispersion: 3, harvestRate: 25,
   },
   {
-    id: MAT.ice, key: 'ice', name: 'ice', glyph: '*', color: '#a8e6ff',
+    id: MAT.ice, key: 'ice', name: 'ice', glyph: '*', color: '#a8e6ff', glint: true,
     behavior: 'static', density: 100, harvestRate: 6, brittle: true,
   },
   {
@@ -106,7 +110,7 @@ export const MATERIALS: readonly MaterialDef[] = [
   },
   {
     // The heaviest powder. Harvested into the wallet; spent as a heavy shot when written into a spell.
-    id: MAT.gold, key: 'gold', name: 'gold', glyph: '$', color: '#e8b923',
+    id: MAT.gold, key: 'gold', name: 'gold', glyph: '$', color: '#e8b923', glint: true,
     behavior: 'powder', density: 30, harvestRate: 20, currency: true, burstCells: 3,
   },
 ];

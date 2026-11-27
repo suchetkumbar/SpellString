@@ -71,6 +71,7 @@ export function damageCreature(
     c.body.vx += (dirX * knock) / c.def.mass;
     c.body.vy += (dirY * knock * 0.6 - 3) / c.def.mass;
     ctx.effects.number(c.x, c.y - 0.8, amount, 'hit');
+    ctx.emit({ kind: 'hit', x: c.x, y: c.y, amount });
     if (by === 'player') {
       // Being hit gives the player away.
       c.alert = c.def.memoryTicks;
@@ -94,6 +95,7 @@ function kill(ctx: GameContext, c: Creature, by: string): void {
   c.dead = true;
   c.hp = 0;
   c.killedBy = by;
+  ctx.emit({ kind: 'kill', x: c.x, y: c.y });
   if (by === 'player' || c.lastSpell) ctx.stats.countKill(c.lastSpell);
   if (c.dot >= 0.5) ctx.effects.number(c.x, c.y - 0.8, c.dot, 'burn');
   const drop = c.def.drop;

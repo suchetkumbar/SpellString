@@ -45,7 +45,10 @@ export class Features {
 
   update(ctx: GameContext): void {
     const p = ctx.player;
-    if (!p.dead && this.portal?.touches(p.x, p.y)) this.exitReached = true;
+    if (!p.dead && !this.exitReached && this.portal?.touches(p.x, p.y)) {
+      this.exitReached = true;
+      ctx.emit({ kind: 'portal' });
+    }
     for (const c of this.chests) {
       if (!c.opened && !p.dead && Math.abs(p.x - (c.x + 0.5)) < 0.95 && Math.abs(p.y - (c.y + 0.5)) < 1) this.open(ctx, c);
     }
@@ -55,6 +58,7 @@ export class Features {
   /** Two loot materials, flying out of the chest to the witch as glyphs. */
   private open(ctx: GameContext, c: Chest): void {
     c.opened = true;
+    ctx.emit({ kind: 'chest' });
     const rng = ctx.rng;
     const picks = new Set<MaterialKey>();
     while (picks.size < Math.min(2, this.loot.length)) picks.add(rng.pick(this.loot));
@@ -85,6 +89,7 @@ export class Features {
         v.lit = false;
         for (let k = 0; k < w; k++) for (let yy = y - h; yy < y; yy++) if (grid.get(x + k, yy) === MAT.fire) sim.place(x + k, yy, MAT.steam);
         ctx.say('The vent hisses out.', 'info');
+        ctx.emit({ kind: 'sizzle', amount: 8 });
         return;
       }
     }

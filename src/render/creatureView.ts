@@ -10,7 +10,7 @@ const TELEGRAPH_BLINK = 4;
  * Creatures, their attack telegraphs and floating damage numbers, for one
  * frame. `a` is the interpolation factor between the last two ticks.
  */
-export function creatureView(game: Game, styles: StyleTable, a: number, entities: RenderEntity[], labels: RenderLabel[]): void {
+export function creatureView(game: Game, styles: StyleTable, a: number, entities: RenderEntity[], labels: RenderLabel[], reduceFlashing = false): void {
   const tick = game.tick;
   for (const c of game.creatures) {
     if (c.dead) continue;
@@ -18,9 +18,9 @@ export function creatureView(game: Game, styles: StyleTable, a: number, entities
     const x = c.prevX + (c.x - c.prevX) * a;
     const y = c.prevY + (c.y - c.prevY) * a;
     let style = look.normal;
-    if (c.flash > 0) style = look.hurt;
-    else if (c.state === 'windup') style = ((tick + c.id) / TELEGRAPH_BLINK) % 2 < 1 ? look.windup : look.normal;
-    else if (c.burning > 0 && (tick >> 2) % 2 === 0) style = look.burning;
+    if (c.flash > 0 && !reduceFlashing) style = look.hurt;
+    else if (c.state === 'windup') style = reduceFlashing || ((tick + c.id) / TELEGRAPH_BLINK) % 2 < 1 ? look.windup : look.normal;
+    else if (c.burning > 0 && (reduceFlashing || (tick >> 2) % 2 === 0)) style = look.burning;
     entities.push({ style, x, y });
     if (c.state === 'windup') {
       // The telegraph: a ! that grows more solid as the attack nears.
